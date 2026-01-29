@@ -1,0 +1,10 @@
+views:
+  - type: table
+    name: Table
+    order:
+      - file.name
+      - file.links
+      - file.backlinks
+    columnSize:
+      file.name: 276
+      file.links: 390

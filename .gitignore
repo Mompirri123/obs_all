@@ -1,0 +1,39 @@
+.obsidian/workspaces
+.obsidian/backup
+# Obsidian user-specific and cache files (prevents conflicts)
+.obsidian/workspace.json
+.obsidian/workspace
+.obsidian/workspace-mobile.json
+.obsidian/workspace/layouts.json
+.obsidian/appearance.json
+.obsidian/plugins/
+.obsidian/themes/
+.obsidian/****
+
+# Caches and binaries from your screenshot
+makefile.cache.md
+.obsidian-cache/
+.data.json
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.Trash-*
+
+# Temp/untitled files
+Untitled*
+null*
+
+# Obsidian Git plugin data
+.obsidian-git-data/
+
+# Uncomment below to ignore ALL .obsidian (loses shared settings)
+# .obsidian/*
+
+# Ignore entire Obsidian config/cache directories and vault trash
+.obsidian/
+.trash/
+.makemd/fileCache.mdc
+/.makemd
