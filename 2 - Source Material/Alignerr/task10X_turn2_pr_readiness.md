@@ -22,6 +22,8 @@
 - Negative line counts are clamped and tested.
 - No new imports added and file read happens once per call.
 
-**Optional improvements (not blockers):**
-- Add tests for missing‑source environments (REPL/frozen apps) if required
-  by project expectations.
+**Non‑blocking gaps to be aware of:**
+- Snippet lines do **not** align to custom `ic.prefix` widths (fixed 4‑space indent).
+- No tests for missing‑source environments (REPL/frozen apps).
+- Reads the entire file into memory per call when snippet is enabled (heavy for large files).
+- Snippet can be stale if the source file changes between runs.
