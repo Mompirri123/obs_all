@@ -145,3 +145,9 @@
 ## Overall Preference Justification
 
 Model A is the better option because it avoids the busy-loop regression introduced by Model B when no GPUs are available. Both models remove GPU tasks from the work queue into in-memory storage, which risks task loss if the executor exits; however, B’s local `pending_gpu_items` also bypasses the idle sleep path, leading to needless CPU churn. Model A’s separate `process_gpu_deferred_queue(pool)` is not perfect, but it keeps the loop’s quiet-period behavior intact and is therefore closer to a safe, mergeable fix. With targeted tests and a small backoff or persistence improvement, Model A could be made PR-ready in a follow-up.
+
+## Required Changes to A (better model overall)
+
+- Avoid losing deferred GPU tasks if the executor exits (don’t keep them only in memory).
+- Prevent tight retry loops when only GPU tasks are pending and no GPUs are available.
+- Add tests that prove: (1) GPU tasks defer while CPU tasks continue, (2) deferred GPU tasks start after GPUs are freed, (3) no busy‑loop when GPUs are unavailable, and (4) deferred tasks survive executor restarts or are safely requeued.
