@@ -8,43 +8,46 @@
 - No public API changes; all behavior is internal to `Executor`.
 
 ### Model A — How it works (flow)
-1. `Executor.__init__(...)` creates a persistent `WorkQueueOnFilesystem` at `gpu_deferred_queue` and a flag `gpu_recently_released`.
+1. `Executor.__init__(...)` creates a persistent `WorkQueueOnFilesystem` at `gpu_deferred_queue`.
 2. `Executor.exec_loop(pool)`:
-   - When `gpu_recently_released` is True, it calls `Executor.process_gpu_deferred_queue(pool)` and resets the flag.
+   - At the start of each loop, it checks `self.available_gpu_quota > 0` and `self.gpu_deferred_queue.size() > 0`; if true it calls `Executor.process_gpu_deferred_queue(pool)`.
    - It pops new work from `WorkQueue.pop(...)` and iterates each `WorkItem`.
    - If `WorkItem.gpu_limit > 0` and `Executor.acquire_gpu(...)` fails, the item is pushed into `Executor.gpu_deferred_queue`.
-3. `Executor.collect_finished_works()` releases GPUs and sets `gpu_recently_released = True`.
-4. On shutdown, `Executor.handle_shutdown_deferred_queue()` logs how many deferred tasks remain in the persistent queue.
+3. `Executor.process_gpu_deferred_queue(pool)`:
+   - Pops the entire deferred queue (FIFO by on‑disk order), starts tasks until the first GPU miss, then re‑enqueues the remaining tail as a single batch via `WorkQueue.flush()`.
+4. `Executor.handle_shutdown_deferred_queue()` logs the remaining deferred tasks (they stay on disk for restart).
 
 **Relevant functions and parameters**
 - `Executor.exec_loop(pool)`:
-  - Calls `process_gpu_deferred_queue(pool)` only when `gpu_recently_released` is True.
+  - Calls `process_gpu_deferred_queue(pool)` when `available_gpu_quota > 0` and `gpu_deferred_queue.size() > 0`.
   - Defers GPU tasks by calling `gpu_deferred_queue.push(item)` when `acquire_gpu(...)` fails.
 - `Executor.process_gpu_deferred_queue(pool)`:
-  - Pulls items from the persistent queue, retries `acquire_gpu(...)`, and re‑enqueues when still blocked.
+  - Enforces FIFO by stopping at the first unsatisfied task and batch re‑enqueueing the tail via `gpu_deferred_queue.flush()`.
 - `Executor.gpu_deferred_queue`:
   - Persistent, on‑disk queue for deferred GPU tasks.
-- `Executor.gpu_recently_released`:
-  - Event flag that gates deferred processing.
 
 ### Model B — How it works (flow)
-1. `Executor.__init__(...)` creates an in‑memory list `pending_gpu_works` and a flag `gpus_freed`.
-2. `Executor.exec_loop(pool)`:
-   - Pops new work from `WorkQueue.pop(...)`.
-   - If `WorkItem.gpu_limit > 0` and `Executor.acquire_gpu(...)` fails, the item is appended to `pending_gpu_works`.
-   - CPU-only tasks are still submitted to the pool via `pool.apply_async(...)`.
-   - After `collect_finished_works()` runs, if `gpus_freed` is True, it calls `drain_pending_gpu_works(pool)`.
-3. `Executor.collect_finished_works()` releases GPUs and sets `gpus_freed = True`.
-4. On shutdown, `Executor.flush_pending_gpu_works()` pushes pending GPU tasks back into `wq`.
+1. `Executor.__init__(...)` creates a persistent `WorkQueueOnFilesystem` at `gpu_deferred_queue` and a flag `gpu_recently_released`.
+2. `Executor.run()` checks `gpu_deferred_queue.size()` on startup; if > 0 it sets `gpu_recently_released = True` to trigger processing on the first loop.
+3. `Executor.exec_loop(pool)`:
+   - If `gpu_recently_released` is True, it calls `process_gpu_deferred_queue(pool)` and then clears the flag.
+   - It pops new work from `WorkQueue.pop(...)` and iterates each `WorkItem`.
+   - If `WorkItem.gpu_limit > 0` and `Executor.acquire_gpu(...)` fails, the item is pushed into `Executor.gpu_deferred_queue`.
+4. `Executor.process_gpu_deferred_queue(pool)`:
+   - Pops one item at a time and if no GPU is available it re‑queues the item to the *front* using `_requeue_to_front(...)`, then stops to preserve FIFO.
+5. `Executor.collect_finished_works()` releases GPUs and sets `gpu_recently_released = True`.
 
 **Relevant functions and parameters**
+- `Executor.run()`:
+  - Startup check sets `gpu_recently_released = True` when deferred tasks exist.
 - `Executor.exec_loop(pool)`:
-  - Defers GPU tasks into `pending_gpu_works`.
-  - Only drains when `gpus_freed` is set by `collect_finished_works()`.
-- `Executor.drain_pending_gpu_works(pool)`:
-  - Starts GPU tasks in FIFO order and stops on the first task it cannot satisfy.
-- `Executor.flush_pending_gpu_works()`:
-  - Requeues in‑memory deferred items into `wq` on shutdown.
+  - Calls `process_gpu_deferred_queue(pool)` when `gpu_recently_released` is True.
+- `Executor.process_gpu_deferred_queue(pool)`:
+  - One‑by‑one processing, stop on first miss, re‑queue to front via `_requeue_to_front(...)`.
+- `Executor._requeue_to_front(item)`:
+  - Filename hack to force front‑of‑queue ordering.
+- `Executor.gpu_recently_released`:
+  - Event flag set in `collect_finished_works()` and on startup.
 
 ---
 
@@ -52,108 +55,97 @@
 
 ### Model A
 - New field: `Executor.gpu_deferred_queue: WorkQueueOnFilesystem` (persistent GPU deferral).
-- New field: `Executor.gpu_recently_released: bool` (event gate for deferred processing).
-- New method: `Executor.process_gpu_deferred_queue(pool)` (processes persistent deferred tasks).
-- New method: `Executor.handle_shutdown_deferred_queue()` (logs persisted deferred tasks on shutdown).
+- Modified `Executor.exec_loop(pool)` to call `process_gpu_deferred_queue(pool)` when `available_gpu_quota > 0` and `gpu_deferred_queue.size() > 0`.
+- New/modified `Executor.process_gpu_deferred_queue(pool)` with FIFO tail re‑enqueue via `gpu_deferred_queue.flush()`.
 - Modified `Executor.busy` to include `gpu_deferred_queue.size()`.
-- `Executor.exec_loop(pool)` now pushes deferred GPU tasks into `gpu_deferred_queue` when `acquire_gpu(...)` fails.
 
 ### Model B
-- New field: `Executor.pending_gpu_works: List[WorkItem]` (in‑memory pending list).
-- New field: `Executor.gpus_freed: bool` (event gate for draining).
-- New method: `Executor.drain_pending_gpu_works(pool)`.
-- New method: `Executor.flush_pending_gpu_works()`.
-- Modified `Executor.exec_loop(pool)` to defer GPU tasks into `pending_gpu_works` and to call `drain_pending_gpu_works(...)` after `collect_finished_works()`.
-- Modified GPU downgrade path to set `item._gpu_limit` directly.
+- New field: `Executor.gpu_deferred_queue: WorkQueueOnFilesystem` (persistent GPU deferral).
+- New field: `Executor.gpu_recently_released: bool`.
+- New method: `Executor._requeue_to_front(item)`.
+- Modified `Executor.run()` to set `gpu_recently_released = True` when deferred tasks exist on startup.
+- Modified `Executor.exec_loop(pool)` to call `process_gpu_deferred_queue(pool)` only when `gpu_recently_released` is True.
+- Modified `Executor.process_gpu_deferred_queue(pool)` to pop one item at a time and re‑queue to front on GPU miss.
 
 ---
 
 ## Tests Added / Modified
 
 ### Model A (A/tests/test_gpu_deferred_queue.py)
-- `test_gpu_deferred_queue_is_persistent`: verifies `Executor.gpu_deferred_queue` uses `WorkQueueOnFilesystem` and the directory exists.
-- `test_task_deferred_when_no_gpu_available`: verifies a GPU task can be pushed into `gpu_deferred_queue` when GPU quota is zero.
-- `test_event_driven_processing`: checks the `gpu_recently_released` flag, but it toggles the flag manually instead of using `collect_finished_works()`.
-- `test_no_wasteful_polling_when_queue_empty`: timing-based check that `process_gpu_deferred_queue(...)` returns quickly (can be flaky).
-- `test_deferred_task_runs_when_gpu_available`: verifies `process_gpu_deferred_queue(...)` starts a task and assigns GPUs when available.
-- `test_duplicate_task_handling`: verifies a deferred item with a key already in `running_works` is skipped.
-- `test_shutdown_with_deferred_tasks`: checks `handle_shutdown_deferred_queue()` does not drop persisted tasks.
-- `test_busy_property_includes_deferred_queue`: verifies `Executor.busy` uses `gpu_deferred_queue.size()`.
-- `test_requeue_failure_handling`: simulates re‑enqueue failure and expects failed items to be pushed to `cq`.
-- `test_batch_processing_limit`: checks deferred queue pop is limited by `ctx.usable_cpu_count * 2`.
-- `test_gpu_quota_management`: sanity checks `acquire_gpu(...)` and `release_gpu(...)` quotas.
-- `test_persistence_survives_recreation`: verifies deferred tasks survive executor recreation.
+- `test_deferred_queue_is_filesystem_backed`: verifies `Executor.gpu_deferred_queue` is `WorkQueueOnFilesystem` and directory exists.
+- `test_deferred_tasks_survive_executor_recreation`: verifies deferred tasks persist across executor recreation.
+- `test_collect_finished_works_makes_deferred_queue_eligible`: uses `collect_finished_works()` to show `available_gpu_quota` changes trigger the `exec_loop` condition for processing.
+- `test_deferred_queue_not_processed_while_gpu_busy`: verifies the `exec_loop` guard (`available_gpu_quota > 0`) prevents processing when GPU is busy.
+- `test_recovered_deferred_tasks_are_eligible_on_startup`: verifies deferred tasks are eligible immediately because `exec_loop` uses the quota+queue condition (no manual flag).
+- `test_tasks_started_in_enqueue_order`: verifies FIFO order when enough GPUs exist.
+- `test_fifo_preserved_when_only_partial_batch_can_run`: verifies tail re‑enqueue preserves ordering.
+- `test_duplicate_key_already_running_is_skipped`: verifies duplicate task keys are skipped.
+- `test_flush_failure_sends_remaining_tasks_to_cq_as_failed`: verifies `gpu_deferred_queue.flush()` failure sends FAILED items to `cq`.
+- `test_shutdown_preserves_deferred_tasks`: verifies `handle_shutdown_deferred_queue()` does not drop items.
+- `test_busy_when_only_deferred_tasks_pending` / `test_busy_when_only_running_works_present`: verify `Executor.busy` semantics.
+- `test_acquire_and_release_round_trips` / `test_acquire_fails_gracefully_when_no_gpus`: GPU quota bookkeeping checks.
 
-### Model B (B/tests/test_gpu_deferral.py)
-- `test_gpu_task_deferred_when_no_quota`: verifies a GPU task is appended to `pending_gpu_works` when `acquire_gpu(...)` fails.
-- `test_pending_gpu_works_drained_after_gpu_freed`: verifies `drain_pending_gpu_works(...)` starts a deferred GPU task after GPU release.
-- `test_drain_stops_at_first_unsatisfiable_task`: verifies FIFO ordering and stop-on-block behavior in `drain_pending_gpu_works(...)`.
-- `test_gpus_freed_flag_set_by_collect`: verifies `collect_finished_works()` sets `gpus_freed` on GPU release.
-- `test_gpus_freed_flag_not_set_when_no_gpu_work_finishes`: verifies CPU-only completion does not set `gpus_freed`.
-- `test_cpu_task_runs_while_gpu_task_pending`: verifies CPU tasks still enter `running_works` while GPU tasks wait.
-- `test_flush_pushes_items_back_to_wq`: verifies `flush_pending_gpu_works()` requeues deferred tasks on shutdown.
-- `test_flush_is_noop_when_queue_empty`: verifies flush is safe when no pending tasks exist.
-- `test_downgrade_does_not_crash`: verifies `_gpu_limit` downgrade path works.
-- `test_no_gpu_system_defers_gpu_tasks`: checks the downgrade path sets `gpu_limit` to 0 on a no‑GPU system.
-- `test_cpu_task_runs_on_no_gpu_system`: verifies CPU tasks still run with zero GPUs.
-- `test_fifo_order_preserved`: verifies FIFO ordering with partial GPU quota.
-- `test_tasks_spread_across_gpus`: verifies multi‑GPU draining behavior.
+### Model B (B/tests/test_gpu_deferred_queue.py)
+- Includes the earlier persistence and deferral tests, plus **additional tests**:
+  - `test_fifo_ordering_maintained`: validates FIFO order after re‑queueing to front and repeated processing.
+  - `test_startup_processes_persisted_tasks`: validates `Executor.run()` startup logic sets `gpu_recently_released` when deferred tasks exist.
+  - `test_task_execution_order_with_gpu_scarcity`: checks order remains non‑decreasing under scarce GPUs.
+  - `test_no_gpu_starvation`: ensures large GPU task remains at front when small tasks follow.
+  - `test_deferred_queue_survives_multiple_process_cycles`: verifies queue persists across repeated process cycles.
+- Still includes timing‑based `test_no_wasteful_polling_when_queue_empty`, and `test_event_driven_processing` toggles `gpu_recently_released` manually rather than via `collect_finished_works()`.
 
 ---
 
 ## Model A — Pros and Cons (with function references)
 
 **Pros**
-- `Executor.gpu_deferred_queue` uses `WorkQueueOnFilesystem`, so deferred GPU tasks are not lost on crash or restart.
-- `Executor.collect_finished_works()` sets `gpu_recently_released`, so `Executor.process_gpu_deferred_queue(pool)` is event‑driven and avoids busy polling.
+- `Executor.exec_loop(pool)` checks `available_gpu_quota > 0` and `gpu_deferred_queue.size() > 0` before calling `process_gpu_deferred_queue(pool)`, so no busy‑loop when GPUs are unavailable.
+- `Executor.process_gpu_deferred_queue(pool)` preserves FIFO by stopping on first GPU miss and batch re‑enqueueing the tail via `gpu_deferred_queue.flush()`.
+- `A/tests/test_gpu_deferred_queue.py` uses `collect_finished_works()` to validate eligibility instead of a manual flag, matching the new control flow.
 
 **Cons**
-- `Executor.exec_loop(pool)` only calls `process_gpu_deferred_queue(pool)` when `gpu_recently_released` is True. After restart, `gpu_recently_released` is False, so tasks in `gpu_deferred_queue` can be stuck forever.
-- `Executor.process_gpu_deferred_queue(pool)` re‑enqueues unsatisfied tasks to the back of the queue, so FIFO ordering among GPU tasks is not guaranteed.
-- `test_event_driven_processing` sets `gpu_recently_released` manually instead of using `collect_finished_works()`, so it does not validate the real code path.
-- `test_no_wasteful_polling_when_queue_empty` uses timing for correctness, which is brittle on slow or loaded CI.
+- `Executor.process_gpu_deferred_queue(pool)` pops the entire deferred queue at once, which can be heavy for large queues and increases disk churn.
+- If `gpu_deferred_queue.flush()` fails, all remaining tail items are marked FAILED; there is no retry path.
 
 ---
 
 ## Model B — Pros and Cons (with function references)
 
 **Pros**
-- `Executor.drain_pending_gpu_works(pool)` enforces FIFO order and stops at the first unsatisfied task, so ordering is predictable.
-- `Executor.flush_pending_gpu_works()` pushes deferred tasks back into `wq` on shutdown, so tasks are not lost on clean exit.
-- Tests in `B/tests/test_gpu_deferral.py` cover FIFO order, multi‑GPU behavior, and CPU tasks continuing when GPU tasks are pending.
+- `Executor.run()` sets `gpu_recently_released = True` when `gpu_deferred_queue.size() > 0`, so deferred tasks from previous runs can be processed immediately.
+- `Executor.process_gpu_deferred_queue(pool)` processes one item at a time and uses `_requeue_to_front(...)` to keep FIFO ordering without popping the full queue.
+- Tests add coverage for FIFO under scarcity and starvation prevention in `B/tests/test_gpu_deferred_queue.py`.
 
 **Cons**
-- `Executor.pending_gpu_works` is in memory only, so deferred tasks are lost on crash (no persistence like `WorkQueueOnFilesystem`).
-- `Executor.exec_loop(pool)` does not sleep when `pending_gpu_works` is non‑empty and no GPUs are freed, so it can spin and load CPU.
-- Tests do not cover the busy‑loop risk; they do not assert any sleep or throttling behavior in `exec_loop(...)`.
+- `_requeue_to_front(...)` uses filename hacks and deletes existing files by key, which is risky and can drop duplicate tasks with the same key.
+- `Executor.exec_loop(pool)` only runs `process_gpu_deferred_queue(pool)` when `gpu_recently_released` is True, so if `collect_finished_works()` is never called (no running tasks), deferred tasks rely only on the startup flag.
+- Tests still include timing‑based assertions (`test_no_wasteful_polling_when_queue_empty`) and manual flag toggling (`test_event_driven_processing`).
 
 ---
 
 ## PR Readiness (by model)
 
-**Model A — PR status: Not ready**
-- Needs a startup path in `Executor.exec_loop(pool)` to process persisted work (call `process_gpu_deferred_queue(pool)` at loop start or set `gpu_recently_released = True` when `gpu_deferred_queue.size() > 0` and `available_gpu_quota > 0`).
-- Needs FIFO preservation in `process_gpu_deferred_queue(pool)` to avoid reordering.
-- Needs test fixes that use `collect_finished_works()` for flag changes and avoid timing‑based assertions.
+**Model A — PR status: Almost ready**
+- The FIFO policy and startup eligibility via `available_gpu_quota` look correct.
+- Needs a scalability check for `process_gpu_deferred_queue(pool)` (pop‑all behavior) and a safer recovery path if `gpu_deferred_queue.flush()` fails.
 
-**Model B — PR status: Not ready**
-- Needs persistence for `pending_gpu_works` or a safe requeue mechanism on crash.
-- Needs a sleep/backoff path in `Executor.exec_loop(pool)` when only `pending_gpu_works` remain and no GPUs were freed.
+**Model B — PR status: Almost ready**
+- Startup handling and FIFO policy are clear.
+- `_requeue_to_front(...)` is risky because it deletes existing files by key; that needs a safer approach or explicit uniqueness guarantees.
+- Tests should remove timing‑based checks and use `collect_finished_works()` to set `gpu_recently_released`.
 
 ---
 
 ## Concrete Next‑Turn Fixes
 
 **Model A improvements**
-- In `Executor.exec_loop(pool)`, call `process_gpu_deferred_queue(pool)` at loop start, or set `gpu_recently_released = True` when `gpu_deferred_queue.size() > 0` and `available_gpu_quota > 0` to avoid stuck tasks after restart.
-- Update `process_gpu_deferred_queue(pool)` to enforce FIFO (stop on first unsatisfied task instead of re‑enqueueing to the back).
-- Replace `test_event_driven_processing` with a test that calls `collect_finished_works()` to flip `gpu_recently_released`.
-- Replace timing‑based `test_no_wasteful_polling_when_queue_empty` with a deterministic assertion (e.g., verify `WorkQueueOnFilesystem.pop()` is not called when size is 0).
+- In `process_gpu_deferred_queue(pool)`, limit `pop(count=...)` to a bounded batch size to avoid loading the full queue into memory.
+- Add a retry or fallback path when `gpu_deferred_queue.flush()` fails (e.g., re‑push each item unbuffered or log and keep in a side queue).
 
 **Model B improvements**
-- Add persistence for deferred GPU tasks (e.g., a `WorkQueueOnFilesystem` similar to `gpu_deferred_queue`).
-- Add a sleep/backoff in `Executor.exec_loop(pool)` when `pending_gpu_works` is non‑empty and `gpus_freed` is False.
-- Add a test that verifies the sleep/backoff path is used when only `pending_gpu_works` exist.
+- Replace `_requeue_to_front(...)` with a safer FIFO‑preserving approach (e.g., stop processing after a miss and re‑enqueue the item without deleting other files).
+- Update `test_event_driven_processing` to use `collect_finished_works()` rather than manually toggling `gpu_recently_released`.
+- Remove timing‑based `test_no_wasteful_polling_when_queue_empty` or replace with a deterministic check.
 
 ---
 
@@ -161,17 +153,17 @@
 
 | Question of which is / has | Answer Given | Justification Why? |
 | --- | --- | --- |
-| Overall Better Solution | A slightly better than B | Model A has persistence via `Executor.gpu_deferred_queue`, which matches the prompt’s safety requirement. |
-| Better logic and correctness | Tie (both have blockers) | Model A can strand work after restart in `Executor.exec_loop(pool)`; Model B can spin in `Executor.exec_loop(pool)` when only `pending_gpu_works` exist. |
-| Better Naming and Clarity | Tie | Both use clear names like `gpu_deferred_queue`, `pending_gpu_works`, `gpu_recently_released`, and `gpus_freed`. |
-| Better Organization and Clarity | A slightly better than B | Model A separates deferred logic into `process_gpu_deferred_queue(pool)`; Model B keeps most logic in `exec_loop(pool)`. |
+| Overall Better Solution | A slightly better than B | `Executor.exec_loop(pool)` in A uses `available_gpu_quota` + queue size without flags, avoiding the fragile `_requeue_to_front(...)` hack. |
+| Better logic and correctness | A slightly better than B | A uses FIFO tail re‑enqueue without deleting queue files; B deletes by key in `_requeue_to_front(...)`. |
+| Better Naming and Clarity | Tie | Both models use clear names like `gpu_deferred_queue` and `process_gpu_deferred_queue(pool)`. |
+| Better Organization and Clarity | Tie | Both encapsulate deferral in `process_gpu_deferred_queue(pool)` and keep enqueue logic in `exec_loop(pool)`. |
 | Better Interface Design | Tie | No public API changes in either model. |
-| Better error handling and robustness | A slightly better than B | Model A persists deferred tasks in `WorkQueueOnFilesystem`; Model B loses deferred tasks on crash. |
-| Better comments and documentation | Tie | Both add minimal comments, no significant docs. |
-| Ready for review / merge | Tie (not ready) | Model A needs restart handling and FIFO; Model B needs no‑spin and persistence. |
+| Better error handling and robustness | A slightly better than B | B’s `_requeue_to_front(...)` can remove files for the same key; A avoids that risk. |
+| Better comments and documentation | Tie | Both add functional docstrings with FIFO explanation. |
+| Ready for review / merge | Tie (almost) | Both need small fixes: A for batch size/flush failure, B for safer FIFO requeue and test cleanup. |
 
 ---
 
 ## Overall Preference Justification
 
-Model A is slightly better because `Executor.gpu_deferred_queue` in `Executor.__init__(...)` persists deferred GPU tasks, which is the most important safety requirement. Model B’s `pending_gpu_works` is only in memory and is lost on crash, even though `flush_pending_gpu_works()` helps on clean shutdown. Both models still fail key parts of the follow‑up prompt: Model A does not process deferred tasks after restart because `gpu_recently_released` is False in `Executor.exec_loop(pool)`, and Model B can spin in `exec_loop(pool)` when only `pending_gpu_works` exist. If Model A adds a startup drain in `exec_loop(pool)` and FIFO behavior in `process_gpu_deferred_queue(pool)`, it should become the better, mergeable option.
+Model A is slightly better because `Executor.exec_loop(pool)` uses a simple eligibility check (`available_gpu_quota > 0` and `gpu_deferred_queue.size() > 0`) and `process_gpu_deferred_queue(pool)` keeps FIFO without deleting queue files. Model B adds startup handling and one‑by‑one processing, but `_requeue_to_front(...)` deletes files by key, which can drop tasks if keys collide. Both models improved tests, but B still keeps timing‑based checks and manual flag toggling. With small fixes, both can be mergeable, but Model A is safer as‑is.
