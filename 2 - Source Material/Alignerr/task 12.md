@@ -57,6 +57,7 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 	- No tests added at all
 	- `UDFType` used for handling different types of data does not include `UHUGEINT` this means it likely doesn't support the type casting / type conversion to unsigned int of large size
 	- No direct mapping between old datatypes to the newer ones to convert when possible
+	- Incredibly and undesirably long `if ... else` chain in the `to_duckdb_type`
 	
 #### Model B:
 - Pros:
@@ -64,12 +65,12 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 	- `UDF_TYPE_TO_DUCKDB` mapping makes `to_duckdb_type` shorter and cause less errors when adding new types
 	
 - Cons:
-	- No tests are added to check
-	- The newly added `UHUGEINT`, `TIMESTAP_TZ`, `UDFListTYPE()`cause any errors or not is not tested too
-	- 
-	
+	- No tests are added to check for errors
+	- The newly added `UHUGEINT`, `TIMESTAP_TZ`, `UDFListTYPE()`cause any errors or not is also not tested
+	- When a unidentified type is added it throws `KeyError` instead of giving `None`	
 
 #### Justification for best overall
+Model B is slightly better, this is because it handles the upgrading better than Model A. Model B uses `UHUGEINT` which Model A completely ignores. Mapping in B is at a single place unlike Model A, this makes it easier to understand and maintain later on. However, Model A which is nice to have, where as Model B doesnt, considering that we asked for an update, this can give credit to A for implementing it but B cant be blamed for not addressing it. Both models still need tests and mess up the enum numbers from the previous values and are not tested for which means there will be conversion issues cause of wrong mapping compared to the code that uses numbers insted of enum typename. 
 
 ---
 
