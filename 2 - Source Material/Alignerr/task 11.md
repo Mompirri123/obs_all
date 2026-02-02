@@ -199,7 +199,7 @@ There are still some gaps existing like in `Executor.exec_loop(pool)` a call at 
 
 ![[Pasted image 20260202115048.png]]
 
-### Rationale Writing Quality Assessment
+### Rationale Writing Quali
 
 
 ![[Pasted image 20260202115159.png]]
