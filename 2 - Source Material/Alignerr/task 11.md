@@ -3,7 +3,7 @@
 a10bca95-e4f2-43aa-8ab8-4193204e2374
 
 **Task ID:**
-
+a10bca95-e4f2-43aa-8ab8-4193204e2374
 
 **git rev-parse HEAD:**
 
@@ -173,16 +173,33 @@ There are still some gaps existing like in `Executor.exec_loop(pool)` a call at 
 
 #### Model A:
 - Pros:
-	
+- `exec_loop()` checks there is available quota and any defered tasks `gpu_deferred_queue.size > 0` before calling the `process_...`to process them, this means there are no busy loops when GPUs are unavailable
+- FirstInFirstServe is followed by stopping on first GPU miss and batch re-enqueueing the tail
+- Manual and time related tests and flags are replaced with and now use automated ways `collect_finished_works()`  to check which also matched the actual code
 - Cons:
+	- The `process_gpu_deferred_queue()` pops (removes) the whole queue at once, this can be a bit heavy when the queue is large. This is not so bad but is slow when the queue size is too big
 
 
 #### Model B:
 - Pros:
-	
+	- only `process_gpu_deferred_queue()` goes through one item at once and keeps FirstInFirstOut order without popping whole queue which is a slightly faster logic
+	- FirstInFirstOut tests are added
 - Cons:
-
+- Still has time based tests instead of automatic 
+- requeuing to the front uses some file naming hacks and deletes the existing files based on the key, this is risky and can drop duplicate tasks
 #### Justification for best overall
 
 
+- points about model A working and Model B still having issues. A better than B
 
+
+## Rating from AutoQA
+
+### Prompt Quality Assessment
+
+![[Pasted image 20260202115048.png]]
+
+### Rationale Writing Quality Assessment
+
+
+![[Pasted image 20260202115159.png]]
