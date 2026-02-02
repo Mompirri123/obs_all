@@ -111,9 +111,8 @@ There are still some gaps present in code like, When an unidentified type is try
 	- 
 	
 - Cons:
-	- The long `if() ... else ... ` chain in  `to_duckdb_type()` still remains
-	- `UHUGEINT` is not fully mapped properly leading to errors in `UDFType`, which then leads to errors in 
-
+	- The long `if() ... else ... ` chain in  `to_duckdb_type()` still remains, this means 
+	
 #### Model B:
 - Pros:
 	
