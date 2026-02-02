@@ -61,7 +61,7 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 	
 #### Model B:
 - Pros:
-	- `UHUGEINT` is added and is properly mapped using the `UDF_TYPE_TO_DUCKDB`
+	- `UHUGEINT` is added and is mapped using the `UDF_TYPE_TO_DUCKDB`
 	- `UDF_TYPE_TO_DUCKDB` mapping makes `to_duckdb_type` shorter and cause less errors when adding new types
 	
 - Cons:
@@ -70,13 +70,25 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 	- When a unidentified type is added it throws `KeyError` instead of giving `None`	
 
 #### Justification for best overall
-Model B is slightly better, this is because it handles the upgrading better than Model A. Model B uses `UHUGEINT` which Model A completely ignores. Mapping in B is at a single place unlike Model A, this makes it easier to understand and maintain later on. However, Model A which is nice to have, where as Model B doesnt, considering that we asked for an update, this can give credit to A for implementing it but B cant be blamed for not addressing it. Both models still need tests and mess up the enum numbers from the previous values and are not tested for which means there will be conversion issues cause of wrong mapping compared to the code that uses numbers insted of enum typename. 
+- Model B is better, this is because it handles the upgrading decently whereas Model A doesnot. Model B uses `UHUGEINT` which Model A completely ignores. Mapping in B is at a single place unlike Model A, this makes it easier to understand and maintain later on. However, Model A which is nice to have, where as Model B doesnt, considering that we asked for an update, this can give credit to A for implementing it but B cant be blamed for not addressing it. Both models still need tests and mess up the enum numbers from the previous values and are not tested for which means there will be conversion issues cause of wrong mapping compared to the code that uses numbers instead of enum typename, this is a simple fix but still a fix to be done
+
+Model Chosen:
+
+B
 
 ---
 
 ## Turn 2
 
+## Issues to solve
+
+- No tests at all
+- Test the `UHUGEINT` etc., which where added whether they work as intended. 
+- When a unidentified type is added it throws `KeyError` which is not the intended behaviour
+
 ### Turn 2 Prompt:
+
+There are still some gaps present in code like, When an unidentified type is trying to added or converted an `KeyError` is thrown, which is not the correct intended behaviour. Also, new types like `UHUGEINT` etc where added to replace the older ones are not at all tested for errors or edgecases or to test the changes caused due to numbering change in `enum` is fine or not
 
 ### Turn 2 Eval Table:
 
