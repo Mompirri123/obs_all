@@ -40,21 +40,34 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 | Better error handling and robustness |              |                     |
 | Better comments and documentation    |              |                     |
 | Ready for review / merge             |              |                     |
-[[task 11 turn 1 model A]]
-[[task 11 turn 1 model B]]
+
+## tmux prints from models
+[[task 12 turn 1 model A]]
+[[task 12 turn 1 model B]]
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
-	- 
+	- Preserves backward compatibility, the `try / expect` block, within the function that converts userDefinedTypes(UDT) to compatible one among `sqltypes` or `duck_dbtypes` can switch and support the old versions
+	- When a function calls `to_duckdb_type` with an unsupported value it directly returns `NONE` without any exception cases like where any parameter type is allowed
+	- Simple and straight forward logic for backward compatibility
 	
 - Cons:
-
+	- No tests added at all
+	- `UDFType` used for handling different types of data does not include `UHUGEINT` this means it likely doesn't support the type casting / type conversion to unsigned int of large size
+	- No direct mapping between old datatypes to the newer ones to convert when possible
+	
 #### Model B:
 - Pros:
+	- `UHUGEINT` is added and is properly mapped using the `UDF_TYPE_TO_DUCKDB`
+	- `UDF_TYPE_TO_DUCKDB` mapping makes `to_duckdb_type` shorter and cause less errors when adding new types
 	
 - Cons:
+	- No tests are added to check
+	- The newly added `UHUGEINT`, `TIMESTAP_TZ`, `UDFListTYPE()`cause any errors or not is not tested too
+	- 
+	
 
 #### Justification for best overall
 
