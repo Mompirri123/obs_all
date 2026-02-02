@@ -109,26 +109,52 @@ cc_agentic_coding
 | Better comments and documentation    |              |                     |
 | Ready for review / merge             |              |                     |
 
+### Working
+- Persistent `WorkQueueOnFileSystem` at `gpu_deferred_queue` and a flag `gpu_recently_released` and a flag `gpu_recently_released`
+- `Executor.exec_loop(pool)`:
+	- when `gpu_recently_released` is True, it calls `Executor.process_gpu_deferred_queue(pool)` and resets the flag
+	- It pops new work from `WorkQueue.pop(...)` and iterates each `WorkItem`
+	- 
+
+
 ### Pros and cons
 
 #### Model A:
 - Pros:
-	
+	- `__init__` creates a persistent `WorkQueueOnFilesystem` in `gpu_deferred_queue` and also a flag named `gpu_rencently_released`, using these and working with `WorkQueueOnFileSystem` that was created, it is making sure that the waiting / deferred tasks do not get lost when there is a crash from `executor()` or even on restart. This solves one of the main issues. A safety mechanism is also added, as there is a persistent queue (a queue that doesnt get lost on `executor()` crash or restart) `process_gpu_deferred_queue` which means data doesn't get lost 
+	- `collect_finished_works` manipulates `gpu_deferred_queue(pool)`, this makes sure that the deferred processes are avoiding loops and are now event-based instead
 - Cons:
+- `exec_loop()` calls `process_gpu_deferred_queue()` , only when the value for `gpu_recently_released` is `True`. But in a situation of restart, `gpu_recently_released` is `False` which means `process_gpu_deferred_queue` is not called, so tasks deferred though are lost not on crash, but they do get struck forever in case of restart
+- `process_gpu_works() ` re enqueues a task at the front of `process_gpu_deferred_queue` to the end of it after checking if there is any place in the persistent queue. This means a "First In" GPU task could get reordered. which is against "FirstInFirstServe"
+- Many tests do not test things rigidly, like the `gpu_recently_released` which is toggled manually. this could have used the `collect_finished_works()`
 
 
 #### Model B:
 - Pros:
+- `drain_pending_gpu_works` follows FirstInFirstOut order and when it meets an unsatisfied task, it stops. This keeps the GPU tasking order correct (FIFO)
+- `flush_pending_gpu_works`requeues deferred GPU tasks back into the `wq` when there is a shut down.  This means no silent losses when the `èxecutor()`exits normally
+- Tests for FIFO, checks whether CPU tasks not getting disturbed if there is any GPU deferring
 	
 - Cons:
+	- `drain_pending_gpu_works` is memory only. In case the executor crashes and not a clean shutdown, deferred tasks are lost. So there is no crash safety
+	- `exec_loop()`doesn't sleep when the `pending_gpu_works` is not empty which means in that case no GPUs are freed, this could cause looping and higher CPU loads which is the same as before
+	- No tests to cover busy loop risks. The `TestGpuDeferralNoSpin`only checks the `gpus_freed` flag but never actually checks for looping
+	
 
 #### Justification for best overall
+Model A is slightly better than B this is because it keeps deferred GPU tasks on the disk, where as B uses `pending_gpu_works` within memory and are lost on shutdown, which means a core requirement is unsatisfied by B. Both models still have gaps in different places. Model A and Model B both have weak tests though most normally tested cases are covered. Model B also doesnt solve the never sleeping issue which was existing before. So Model A though imperfect is slightly better than Model B
+
+### Model Chosen
+- Model A
 
 ---
 
 ## Turn 3
 
+### Things to be fixed:
+- in `Executor.exec_loop(pool)` a call at the start of the loop to `process_gpu_deferred_queue(pool)`should be added or `gpu_recetnly_released = TRUE` with proper conditions should be done. FirstInFirstOut policy should be followed by `process_gpu_deferred_queue(pool)` to avoid task reordering. Checks like `gpu_recently_released` which is toggled manually should have used the `collect_finished_works()`, and timing based tests should use replaced with better ways if possible
 ### Turn 3 Prompt:
+There are still some gaps existing like in `Executor.exec_loop(pool)` a call at the start of the loop to `process_gpu_deferred_queue(pool)`should be added or `gpu_recetnly_released = TRUE` with proper conditions should be done. FirstInFirstOut policy should be followed by `process_gpu_deferred_queue(pool)` to avoid task reordering. Checks like `gpu_recently_released` which is toggled manually should have used the `collect_finished_works()`, and timing based tests are ~~to~~ too shallow for most cases
 
 ### Turn 3 Eval Table:
 
