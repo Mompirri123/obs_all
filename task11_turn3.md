@@ -1,4 +1,4 @@
-# Turn 2 Evaluation — GPU Deferral Follow‑ups (Model A vs Model B)
+# Turn 3 Evaluation — GPU Deferral Follow‑ups (Model A vs Model B)
 
 ## Process Flow and Function-Level Notes
 
@@ -125,14 +125,11 @@
 
 ## PR Readiness (by model)
 
-**Model A — PR status: Almost ready**
-- The FIFO policy and startup eligibility via `available_gpu_quota` look correct.
-- Needs a scalability check for `process_gpu_deferred_queue(pool)` (pop‑all behavior) and a safer recovery path if `gpu_deferred_queue.flush()` fails.
+**Model A — PR status: Ready (per your criteria)**
+- You stated that it is enough when these are satisfied: call `process_gpu_deferred_queue(pool)` at loop start (or equivalent), enforce FIFO in `process_gpu_deferred_queue(pool)`, avoid manual `gpu_recently_released` toggles in tests, and remove timing‑based assertions. Model A now meets those conditions.
 
-**Model B — PR status: Almost ready**
-- Startup handling and FIFO policy are clear.
-- `_requeue_to_front(...)` is risky because it deletes existing files by key; that needs a safer approach or explicit uniqueness guarantees.
-- Tests should remove timing‑based checks and use `collect_finished_works()` to set `gpu_recently_released`.
+**Model B — PR status: Not ready**
+- Still relies on `_requeue_to_front(...)` (risky deletion by key) and retains timing‑based/manual‑flag tests. These violate the follow‑up requirements.
 
 ---
 
@@ -143,7 +140,7 @@
 - Add a retry or fallback path when `gpu_deferred_queue.flush()` fails (e.g., re‑push each item unbuffered or log and keep in a side queue).
 
 **Model B improvements**
-- Replace `_requeue_to_front(...)` with a safer FIFO‑preserving approach (e.g., stop processing after a miss and re‑enqueue the item without deleting other files).
+- Replace `_requeue_to_front(...)` with a safer FIFO‑preserving approach (e.g., stop on miss and batch re‑enqueue without deleting other files).
 - Update `test_event_driven_processing` to use `collect_finished_works()` rather than manually toggling `gpu_recently_released`.
 - Remove timing‑based `test_no_wasteful_polling_when_queue_empty` or replace with a deterministic check.
 
@@ -153,17 +150,17 @@
 
 | Question of which is / has | Answer Given | Justification Why? |
 | --- | --- | --- |
-| Overall Better Solution | A slightly better than B | `Executor.exec_loop(pool)` in A uses `available_gpu_quota` + queue size without flags, avoiding the fragile `_requeue_to_front(...)` hack. |
-| Better logic and correctness | A slightly better than B | A uses FIFO tail re‑enqueue without deleting queue files; B deletes by key in `_requeue_to_front(...)`. |
-| Better Naming and Clarity | Tie | Both models use clear names like `gpu_deferred_queue` and `process_gpu_deferred_queue(pool)`. |
+| Overall Better Solution | A slightly better than B | A satisfies the follow‑up requirements without the `_requeue_to_front(...)` risk. |
+| Better logic and correctness | A slightly better than B | A enforces FIFO without deleting queue files; B deletes by key in `_requeue_to_front(...)`. |
+| Better Naming and Clarity | Tie | Both use clear names like `gpu_deferred_queue` and `process_gpu_deferred_queue(pool)`. |
 | Better Organization and Clarity | Tie | Both encapsulate deferral in `process_gpu_deferred_queue(pool)` and keep enqueue logic in `exec_loop(pool)`. |
 | Better Interface Design | Tie | No public API changes in either model. |
 | Better error handling and robustness | A slightly better than B | B’s `_requeue_to_front(...)` can remove files for the same key; A avoids that risk. |
 | Better comments and documentation | Tie | Both add functional docstrings with FIFO explanation. |
-| Ready for review / merge | Tie (almost) | Both need small fixes: A for batch size/flush failure, B for safer FIFO requeue and test cleanup. |
+| Ready for review / merge | A better than B | A meets your stated readiness conditions; B does not. |
 
 ---
 
 ## Overall Preference Justification
 
-Model A is slightly better because `Executor.exec_loop(pool)` uses a simple eligibility check (`available_gpu_quota > 0` and `gpu_deferred_queue.size() > 0`) and `process_gpu_deferred_queue(pool)` keeps FIFO without deleting queue files. Model B adds startup handling and one‑by‑one processing, but `_requeue_to_front(...)` deletes files by key, which can drop tasks if keys collide. Both models improved tests, but B still keeps timing‑based checks and manual flag toggling. With small fixes, both can be mergeable, but Model A is safer as‑is.
+Model A is better because `Executor.exec_loop(pool)` calls `process_gpu_deferred_queue(pool)` at loop start using the quota+queue condition, and `process_gpu_deferred_queue(pool)` preserves FIFO without deleting queue files. Model B adds startup handling and one‑by‑one processing, but `_requeue_to_front(...)` deletes files by key and the tests still rely on timing and manual flag toggling. Based on your criteria, Model A is PR‑ready while Model B is not.
