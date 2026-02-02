@@ -28,7 +28,7 @@
 - `TestEnumRenumbering.*` checks name-based access and total count (27), and confirms `UDFType["UUID"]` resolves to `duckdb.sqltypes.UUID` despite renumbering.
 
 ### Pros
-- The error path in `UDFType.to_duckdb_type()` is explicit: missing mapping raises `TypeError` with the type name, which directly addresses the prompt’s “KeyError is thrown” issue.
+- `UDFType.to_duckdb_type()` raises `TypeError` with the type name on missing mapping, matching the prompt’s “KeyError is not intended” requirement.
 - `TestUDFTypeErrorHandling.*` confirms the `TypeError` path and ensures a raw `KeyError` never leaks.
 - `TestUDFTypeUHUGEINT.*` proves `UDFType.UHUGEINT` works end‑to‑end through `PythonUDFContext.bind()`.
 

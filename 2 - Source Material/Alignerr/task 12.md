@@ -88,7 +88,7 @@ B
 
 ### Turn 2 Prompt:
 
-There are still some gaps present in code like, When an unidentified type is trying to added or converted an `KeyError` is thrown, which is not the correct intended behaviour. Also, new types like `UHUGEINT` etc where added to replace the older ones are not at all tested for errors or edgecases or to test the changes caused due to numbering change in `enum` is fine or not
+There are still some gaps present in code like, When an unidentified type is trying to added or converted an `KeyError` is thrown, which is not the correct intended behaviour. Also, new types like `UHUGEINT` etc where added to replace the older ones are not at all tested for errors or edge-cases or to test the changes caused due to numbering change in `enum` is fine or not
 
 ### Turn 2 Eval Table:
 
@@ -108,8 +108,11 @@ There are still some gaps present in code like, When an unidentified type is try
 #### Model A:
 - Pros:
 	
+	- 
+	
 - Cons:
-
+	- The long `if() ... else ... ` chain in  `to_duckdb_type()` still remains
+	- `UHUGEINT` is not fully mapped properly leading to errors in `UDFType`, which then leads to errors in 
 
 #### Model B:
 - Pros:
