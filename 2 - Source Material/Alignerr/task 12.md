@@ -1,7 +1,7 @@
 **Created:** *<span color ="cyan"></span>* <span style="color: green; font-style:italic;">02.02.26, 15:54</span>
 
 **UUID:**
-
+s
 
 **Task ID:**
 
@@ -107,17 +107,21 @@ There are still some gaps present in code like, When an unidentified type is try
 
 #### Model A:
 - Pros:
-	
-	- 
+- `to_duckdb_type` is finding missing mappings and then converting them into `TypeError`, and tests within `TestUDFTypeErrorHndling` check that the errors are closed within this
+- `UHUGEINT` is integrated properly every where and is properly tested for
 	
 - Cons:
-	- The long `if() ... else ... ` chain in  `to_duckdb_type()` still remains, this means 
+- There are still no steps to check if the renumbered `UDFType` values are correctly assigned expect for a single check for the basic `integer` type. And some types like the `UUID`which is changed from 12 to 13 but there is no single test that checks if the change is working or not.
+- `TestEnumRenumbering.xyz)` only checks for name based and skips others
+- Lacks proper testing and makes shallow tests
 	
 #### Model B:
 - Pros:
+	- All existing `enum` values are kept unchanged. No numbering change etc;. Addition to the `class UDFType` where made at the end of the `enum` and also the additional `UHUGEINIT` that added as `UHUGEINT = 27` is properly tested for,  and is also mapped to different places that need to be mapped to it.
+	- `to_duck_type`raises a `Type_Error` this is the intended type of error which is changed from the previous  `KeyError` that was being shown, only the test for missing mapping for type checks and throws the `KeyError`, satisfying one of the mainky requested changes
 	
 - Cons:
-
+	- No mentionable fails but the `test_every_member_round_trips` as stated in the inline comment only checks "`to_duckdb_type()` returns a 'non-`None`' DuckDB type for every member." but doesnt check for 'None'
 #### Justification for best overall
 
 ---
