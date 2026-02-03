@@ -26,41 +26,51 @@ When names of files are same the way they are handled now is by adding an index 
  Fix the duplicate filename handling issue, where it adds index so names. These names are changing every turn. same input should always gives same output name. Update tests etc.; if needed
 ### Turn 1 Eval Table:
 
-| Question of which is / has           | Answer Given | Justoification Why? |
-| ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Question of which is / has           | Answer Given      | Justoification Why? |
+| ------------------------------------ | ----------------- | ------------------- |
+| Overall Better Solution              | A better          |                     |
+| Better logic and correctness         | A much better     |                     |
+| Better Naming and Clarity            | B slightly better |                     |
+| Better Organization and Clarity      | A slightly        |                     |
+| Better Interface Design              | A slightly        |                     |
+| Better error handling and robustness | A better          |                     |
+| Better comments and documentation    | B slightly        |                     |
+| Ready for review / merge             | A better          |                     |
 
 ### Pros and cons
 [[13A COT]]
 [[13B COT]]
 #### Model A:
 - Pros:
-	- Adds a Hash suffix in the `collect_output_files`, this change now adds a hash based suffix at the end of the name which means the filenames are guaranteed to be unique
-	- Checks if the names or unique or not
+	- Adds a Hash suffix in the `collect_output_files`, this change now adds a hash based suffix at the end of the name which means the filenames are guaranteed to be unique. This Avoids index renumbering and produce decently stable naming logic
+	- Checks for if the names or unique if they stay the same during multiple runs are implemented
+	
 - Cons:
-	- If the absolute path of the file changes between runs the filename still changes. Even if the file being input is the same but just from another location as the hash is path based
-	- tests reimplement whole logic instead of calling the existing function that do the same job which means the logic is checked but the original function itself is kinda untested, so there is no test checks from end to end the working of the new logic
+	- If the absolute path of the file changes between runs the filename still changes. Even if the file being input is the same but just from another location as the hash is path based. Tests implement whole algorithm instead of calling the existing functions, So end to end testing is never really done. Logic is complex and all in one place instead of having modularity
 	  
 #### Model B:
 - Pros:
-	- 
+	- The `sorted_paths = sorted(test_paths, key=lambda p: str(p))` makes sure that the naming is same even if ordering changes. Simple and faster logic and easier to read names as they are index based
 	
 - Cons:
+	- Adding or removing any changes to to files changes the index for all the files that come later, huge performance loss could exist. B still depends on the `str(p)`, this means if full paths and order both change, the names can still change resulting in failure. Tests implement whole algorithm instead of calling the existing functions, So end to end testing is never really done
+	  
 
 #### Justification for best overall
+
+- model A is better than Model B, this is because Model A used hash suffixing logic and avoids index renumbering when restart, whereas Model B still uses the `str(p)` function to name which is simple, faster, and easy to read but error prone. Cause a single change to any of the file means number change and this triggers a chain re indexing for all the files that are to be indexed after the first changed one. So, A does solve the issue to a degree where as B barely does a half baked job, it only solves the issue when no files are edited. Model B does a better explanation of what its doing though. Model A does better tests (checks naming consistency and path based). Only issue with A is that its hash is based on `str(p)`, which means if absolute path changes then names could change. So, Model A which does 90% of the job and better tests is better than B with a simple fix
+
 
 ---
 
 ## Turn 2
 
+[[13A COT]]
+[[13B COT]]
+
 ### Turn 2 Prompt:
+
+There are still some gaps like, Hashing the whole path name fails to have same for same input file when Absolute / full path is changed. Use functions implemented in the main code for tests instead of r implementing the whole logic, and add end to end tests. Rename logic could and other complex logic in `collect_output_files()` and other functions could be modularized and can be called directly in main logic / code and tests
 
 ### Turn 2 Eval Table:
 
