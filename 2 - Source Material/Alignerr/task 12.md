@@ -28,6 +28,9 @@ Fix the issue where, User defined Functions fail to register or type cast, when 
 
 ~~fix the issue where, `duckdb.typing` is currently deprecated in later versions of`duckdb` database this prevents any upgrade to `duckdb`, which can cause UserDefinedFunctions to fail when tring to register or type cast / convert~~
 
+duckdb.typing is deprecated Update to the recommended API by inspecting the current duckdb package (or docs) and replace types accordingly. Keep behavior the same; if exact equivalents don’t exist, map to the closest supported types and explain the choices.”
+If you want it to stay fully local (no docs), add:  
+“Only use what’s available in the installed duckdb package and this repo.”
 ### Turn 1 Eval Table:
 
 | Question of which is / has           | Answer Given | Justoification Why? |
