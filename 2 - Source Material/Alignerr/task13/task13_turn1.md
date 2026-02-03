@@ -33,7 +33,6 @@ Review of Model A vs Model B changes for duplicate filename handling in `smallpo
 
 **Cons**
 - The hash is based on `str(p)` in `DataSinkTask.collect_output_files(...)`, so if the full path changes between runs (for example, different staging roots), the output name still changes even if the logical input is the same.
-- The output name format no longer uses an index, so the log message in `DataSinkTask.collect_output_files(...)` no longer reflects “index” semantics.
 - The test `TestExecution.test_data_sink_deterministic_filenames` re‑implements the logic instead of calling `DataSinkTask.collect_output_files(...)`, so it is a logic‑level test, not an integration test.
 
 **PR readiness**
@@ -67,7 +66,6 @@ Review of Model A vs Model B changes for duplicate filename handling in `smallpo
 - `TestExecution.test_data_sink_avoid_filename_conflicts` no longer checks uniqueness of output filenames, so uniqueness is not asserted in B.
 
 **Pros**
-- Keeps the index‑style naming in `DataSinkTask.collect_output_files(...)`, which directly matches the prompt’s “adds index” behavior while making it deterministic.
 - Deterministic across ordering changes because of `sorted_paths` in `DataSinkTask.collect_output_files(...)`.
 - Avoids the runtime cost and opacity of `hashlib.sha256(...)`.
 
@@ -88,8 +86,8 @@ Review of Model A vs Model B changes for duplicate filename handling in `smallpo
 **Comparison table**
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              | Model B      | `DataSinkTask.collect_output_files(...)` keeps the index naming but makes it deterministic via `sorted_paths`, matching the prompt wording while fixing the instability. |
-| Better logic and correctness         | Tie          | Both `hashlib.sha256(...)` in A and sorted‑index mapping in B make the mapping order‑independent in `DataSinkTask.collect_output_files(...)`. |
+| Overall Better Solution              | Model A      | `DataSinkTask.collect_output_files(...)` in A makes names deterministic without global renumbering; it also keeps stronger tests. |
+| Better logic and correctness         | Model A      | A avoids index renumbering in `DataSinkTask.collect_output_files(...)` and produces stable per‑path names; B’s index shifts when the set changes. |
 | Better Naming and Clarity            | Model B      | Index‑based output names in `DataSinkTask.collect_output_files(...)` are shorter and easier to read than hash suffixes. |
 | Better Organization and Clarity      | Tie          | Both changes are localized to `DataSinkTask.collect_output_files(...)` with similar structure. |
 | Better Interface Design              | Tie          | Neither model changes `DataSinkNode.__init__(...)` or task parameters; the interface stays the same. |
@@ -98,7 +96,7 @@ Review of Model A vs Model B changes for duplicate filename handling in `smallpo
 | Ready for review / merge             | Model A      | A keeps uniqueness assertions and adds a determinism test; B removes a uniqueness check and should restore it. |
 
 **Overall justification**
-Model B is the better fit to the prompt because it keeps the index‑style naming and makes it deterministic with `sorted_paths` and `path_to_idx` inside `DataSinkTask.collect_output_files(...)`. Model A also solves determinism, but it changes the naming scheme to hash suffixes and can still change names if the full path changes between runs. Since backward compatibility is not required, this is not a penalty, but Model B still matches the stated behavior more directly. The main blocker for Model B is the dropped uniqueness assertion in `TestExecution.test_data_sink_avoid_filename_conflicts`, which should be restored before merge.
+With your clarified intent, the goal is to fix the unstable naming; index‑based naming is allowed if it is stable. Model A updates `DataSinkTask.collect_output_files(...)` to a deterministic per‑path hash, which avoids global renumbering and keeps stronger tests for uniqueness and determinism. Model B fixes order instability but still uses a global index, so adding/removing other files can change names for unchanged paths. Backward compatibility is not a concern here, so Model A’s naming change is acceptable. The main remaining gap in A is that it hashes `str(p)`, so different absolute paths for the same logical file can still change names; that can be refined if needed.
 
 **Test status**
 I did not run tests in this review.

@@ -42,11 +42,15 @@ When names of files are same the way they are handled now is by adding an index 
 [[13B COT]]
 #### Model A:
 - Pros:
-	
+	- Adds a Hash suffix in the `collect_output_files`, this change now adds a hash based suffix at the end of the name which means the filenames are guaranteed to be unique
+	- Checks if the names or unique or not
 - Cons:
-
+	- If the absolute path of the file changes between runs the filename still changes. Even if the file being input is the same but just from another location as the hash is path based
+	- tests reimplement whole logic instead of calling the existing function that do the same job which means the logic is checked but the original function itself is kinda untested, so there is no test checks from end to end the working of the new logic
+	  
 #### Model B:
 - Pros:
+	- 
 	
 - Cons:
 
