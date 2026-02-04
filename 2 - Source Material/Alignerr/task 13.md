@@ -89,23 +89,35 @@ There are still some gaps like, Hashing the whole path name fails to have same f
 
 #### Model A:
 - Pros:
+	- logic is well modularised, ex: `resolve_dst_paths()`, `deduplicate_filenames()` etc and the tests also call these directly. Persistent mapping is achieved by sorting filenames using it, so the order of the list in `src_paths` does not get effected. maps to output directory and uses same naming logic. Checks that names do not change when abs path changes but relative structure is maintained. checks end to end working by running the same plans twice and checking their names and indexing dont change after a run
 	
 - Cons:
+	- `deduplicate_filenames()` sorts by `strp(p.parent)` which still includes abs-path, this means if parent path changes in a way that could change sort order this will still cause change in indexes. Index is assigned for a group, this means adding a new duplicate file renumbers the whole group. No test to check the effects on indexing, if path prefix changes. Index is assigned for a group, this means adding a new duplicate file renumbers the whole group. No test to check the effects on indexing, if path prefix changes.
 
 
 #### Model B:
 - Pros:
+	- Modularised the logic into `resolve_duplicate_filenames()` and then called when needed. Tests call this function now instead of duplicating the algorithm. This function is used to sort and the results are used for mapping and tests end to end working while using the created functions to show that naming doesnot change with the `test_data_sync_avoid_filename_conflicts`
 	
 - Cons:
-
+	- The sorting is still done by `resolve_duplicate_files()` function that using the `str(p)`, so it still uses the full path for sorting, that means index can still change for same file when its absolute path changes. On top of this the functions comments say its independent of abs-path change but the implementation uses `str(p)` thats abs-path dependent.  this means index changes as soon as abs-path changes
 #### Justification for best overall
+- Model A is Better than Model B because, though both models modularise logic and also add end to end test for naming consistency. Model A has better tests, like where it explicitly checks for, abs path changes effecting the filename indexing, which is not done by B. model A uses `str(p.parent)` vs `str(p)`in model B which means as long as the parents path doesnt chnage in a way it changes the ordering indexes dont change. So Model A performs better in every category to B, other than in naming where both their namings are descriptive, Interface hasnt changed, same `__init__` (chose a barely better as N/A was said to be avoided). That said both have their issues but A has less
+
+# Model Chosen
+A
 
 ---
 
 ## Turn 3
 
-### Turn 3 Prompt:
+# Issues:
 
+- `deduplicate_filenames()` still relies on abs-path of the parent
+	- Indexing changes when parents path changes 
+- add tests for `collect_output_files()` with duplicate filenames with parent cross changing every turn to check if indexing and naming are stable across all runs
+### Turn 3 Prompt:
+The implementation still has some small gaps like `deduplicate_filenames()`, that relies on abs-path of the parent. so, indexing can change when parents path changes; Use some relative key instead to ensure more rigid indexing / naming stability. Also, add tests for `collect_output_files()` with duplicate filenames with parent cross changing every turn to check if indexing and naming are stable across all test runs
 ### Turn 3 Eval Table:
 
 | Question of which is / has           | Answer Given | Justoification Why? |
