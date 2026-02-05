@@ -1,0 +1,95 @@
+**Model A**
+Flow of how termination handling is applied (functions, parameters, call chain)
+1. `smallpond.init()` creates `Session(...)` and defines `_handle_termination_signal(signum, frame)` in `smallpond.__init__.py`.
+2. `smallpond.init()` registers `_handle_termination_signal()` with `signal.signal(signal.SIGTERM, ...)` and `signal.signal(signal.SIGINT, ...)`.
+3. `_handle_termination_signal()` sets `session._terminated = True`, then calls `signal.signal(signum, signal.SIG_DFL)` and `signal.raise_signal(signum)`.
+4. `atexit.register(session.shutdown)` is configured in `smallpond.init()`.
+5. `Session.shutdown()` in `smallpond.dataframe.Session` reads `terminated = self._terminated` and writes `terminated` to `job_status_path`.
+6. If `terminated` is `True`, `Session.shutdown()` skips `RuntimeContext.cleanup(remove_output_root=self.config.remove_output_root)` and keeps `queue_root`, `staging_root`, and `temp_root`.
+
+New or modified functions/parameters
+- Modified `smallpond.init()` to register SIGTERM/SIGINT handlers and add `_handle_termination_signal()`.
+- New inner function `_handle_termination_signal(signum, frame)` in `smallpond.__init__.py`.
+- Modified `Session.__init__()` in `smallpond.dataframe.Session` to add `self._terminated`.
+- Modified `Session.shutdown()` in `smallpond.dataframe.Session` to write `terminated` status and skip cleanup when `self._terminated` is `True`.
+- No new public parameters were added.
+
+Tests added/changed and what they prove
+- `tests/test_session.py::test_shutdown_no_cleanup_on_termination` sets `Session._terminated = True` and asserts `queue_root`, `staging_root`, `temp_root`, and a temp file remain after `Session.shutdown()`. This proves `Session.shutdown()` preserves partial data when `Session._terminated` is set.
+- `tests/test_session.py::test_shutdown_no_cleanup_on_termination_with_partial_output` creates a file under `staging_root` and verifies it remains after `Session.shutdown()` with `Session._terminated = True`. This proves `staging_root` is preserved on termination.
+- `tests/test_session.py::test_terminated_flag_prevents_cleanup_even_when_tasks_finished` finishes tasks, then sets `Session._terminated = True` and checks no cleanup and status `terminated`. This proves `Session._terminated` overrides `finished` in `Session.shutdown()`.
+- Edge cases not covered: real SIGTERM/SIGINT handling path, termination while tasks are running, and verifying cleanup removal on termination (the tests check the opposite of the new prompt).
+
+Pros
+- Clear termination flag usage in `Session.shutdown()` with explicit status `terminated` written to `job_status_path`.
+- Signal handlers are set up in `smallpond.init()` to mark termination (`_handle_termination_signal()`).
+
+Cons
+- Opposite behavior for the new prompt. The requirement says partial outputs and temp directories must be removed on termination, but `Session.shutdown()` skips cleanup when `Session._terminated` is `True`.
+- `_handle_termination_signal()` calls `signal.raise_signal(signum)`, which can stop process before `Session.shutdown()` runs, so cleanup may not happen at all.
+- No path removes partial outputs on termination. There is no call to `RuntimeContext.cleanup_partial()` or task-level cleanup in termination handling.
+
+PR readiness for Model A
+- Not ready. It implements preservation on termination, which conflicts with the updated prompt that requires cleanup on termination.
+
+Concrete next-turn fixes for Model A
+1. In `Session.shutdown()`, when `self._terminated` is `True`, call `RuntimeContext.cleanup_partial()` or another cleanup that removes `queue_root`, `staging_root`, and `temp_root`.
+2. In `_handle_termination_signal()`, call `Session.shutdown()` directly before re-raising the signal, or exit cleanly using `sys.exit()` after cleanup to ensure it runs.
+3. Add a subprocess test that sends SIGTERM and verifies `queue_root`, `staging_root`, and `temp_root` are removed after termination.
+
+**Model B**
+Flow of how cleanup is applied (functions, parameters, call chain)
+1. `Session.shutdown()` in `smallpond.dataframe.Session` calls `finished = self._all_tasks_finished()`.
+2. If `finished` is `True`, `Session.shutdown()` calls `RuntimeContext.cleanup(remove_output_root=self.config.remove_output_root)`.
+3. If `finished` is `False`, `Session.shutdown()` now calls `RuntimeContext.cleanup_partial()`.
+4. `RuntimeContext.cleanup_partial()` in `smallpond.execution.task.RuntimeContext` removes `queue_root`, `temp_root`, and `staging_root` via `remove_path(...)`.
+5. For each task, `WorkItem.exec()` always calls `Task.cleanup()` in a `finally` block.
+6. `Task.cleanup()` now checks `self.status` and calls `_cleanup_partial_output()` when `WorkStatus.FAILED` or `WorkStatus.CRASHED`.
+7. `Task._cleanup_partial_output()` removes `runtime_output_abspath` and `temp_abspath` via `remove_path(...)`.
+
+New or modified functions/parameters
+- Modified `Session.shutdown()` in `smallpond.dataframe.Session` to call `RuntimeContext.cleanup_partial()` when `finished` is `False`.
+- New `RuntimeContext.cleanup_partial()` in `smallpond.execution.task.RuntimeContext`.
+- Modified `Task.cleanup()` in `smallpond.execution.task.Task` to call `_cleanup_partial_output()` for `WorkStatus.FAILED` and `WorkStatus.CRASHED`.
+- New `Task._cleanup_partial_output()` in `smallpond.execution.task.Task`.
+- No new public parameters were added.
+
+Tests added/changed and what they prove
+- `tests/test_session.py::test_shutdown_cleanup_partial_on_failure` expects `queue_root`, `staging_root`, and `temp_root` removed when tasks fail. This proves `Session.shutdown()` calls `RuntimeContext.cleanup_partial()` for unfinished runs.
+- `tests/test_session.py::test_cleanup_partial_removes_temp_and_staging` verifies `RuntimeContext.cleanup_partial()` removes `queue_root`, `temp_root`, and `staging_root` but preserves `output_root` and `log_root`.
+- `tests/test_session.py::test_task_cleanup_removes_partial_output_on_crash` creates a crashing `Task` and verifies `Task.cleanup()` removes `runtime_output_abspath` and `temp_abspath`.
+- `tests/test_session.py::test_task_cleanup_preserves_output_on_success` verifies `Task.finalize()` keeps `final_output_abspath` for a successful task, and cleanup does not remove it.
+- Edge cases not covered: explicit termination signals (SIGTERM/SIGINT), and verification that `RuntimeContext.cleanup_partial()` runs on termination instead of failure only.
+
+Pros
+- Implements cleanup of partial outputs and temp directories for unfinished runs via `RuntimeContext.cleanup_partial()` called from `Session.shutdown()`.
+- Adds task-level cleanup in `Task.cleanup()` to remove `runtime_output_abspath` and `temp_abspath` when a task crashes or fails.
+- Tests verify both runtime-context cleanup and task-level cleanup.
+
+Cons
+- No explicit termination detection. If the process exits without running `Session.shutdown()`, `RuntimeContext.cleanup_partial()` is not executed.
+- Termination is not differentiated from failure. `Session.shutdown()` treats any unfinished run the same, which may be acceptable but does not guarantee cleanup on true SIGTERM/SIGINT.
+- Tests do not simulate actual termination signals.
+
+PR readiness for Model B
+- Partially ready. Logic aligns with the updated prompt (cleanup on unfinished runs), but missing explicit termination signal handling and tests for that path.
+
+Concrete next-turn fixes for Model B
+1. Add a termination flag and signal handler in `smallpond.init()` or `Session` to ensure `Session.shutdown()` runs on SIGTERM/SIGINT.
+2. Add a subprocess test that sends SIGTERM and verifies `queue_root`, `staging_root`, and `temp_root` are removed.
+3. Optionally log a `terminated` status in `Session.shutdown()` similar to the existing `success`/`failure` status.
+
+**Comparison Table**
+| Question of which is / has | Answer Given | Justoification Why? |
+| ------------------------------------ | ------------ | ------------------- |
+| Overall Better Solution | Model B (-3) | Model B removes partial outputs via `RuntimeContext.cleanup_partial()` and `Task._cleanup_partial_output()`, which matches the new requirement. Model A preserves outputs on termination in `Session.shutdown()`. |
+| Better logic and correctness | Model B (-3) | `Session.shutdown()` in Model B cleans unfinished runs, while Model A explicitly skips cleanup when `Session._terminated` is `True`. |
+| Better Naming and Clarity | Model B (-2) | `cleanup_partial()` and `_cleanup_partial_output()` describe their behavior clearly. Model A uses `Session._terminated` with no public API. |
+| Better Organization and Clarity | Model B (-1) | Model B places cleanup logic in `RuntimeContext.cleanup_partial()` and `Task.cleanup()`, which is easier to trace. |
+| Better Interface Design | Model B (-1) | `RuntimeContext.cleanup_partial()` is a dedicated method. Model A relies on a private flag and global signal handlers. |
+| Better error handling and robustness | Model B (-2) | Task-level cleanup in `Task.cleanup()` covers crash/fail cases. Model A can skip `Session.shutdown()` due to `signal.raise_signal(...)`. |
+| Better comments and documentation | Tie (0) | Both add minimal comments or docstrings; neither fully documents termination behavior. |
+| Ready for review / merge | Model B (-2) | Model B is closer to the updated requirement but still lacks termination signal coverage. Model A conflicts with the new requirement. |
+
+**Which model is better and why**
+Model B is better because `RuntimeContext.cleanup_partial()` and `Task._cleanup_partial_output()` remove partial outputs and temp directories for unfinished runs, which is aligned with the updated prompt. Model A does the opposite by skipping cleanup in `Session.shutdown()` when `Session._terminated` is `True`, so it does not meet the requirement to remove partial outputs on termination.
