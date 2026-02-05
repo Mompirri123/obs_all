@@ -27,6 +27,10 @@ Prompt: fix improper cleanup on task termination so partial outputs and temp dir
 - The retry slot claim in `Task.run_on_ray()` is more race-safe because `os.open(..., O_CREAT|O_EXCL)` removes the time gap between `os.path.exists()` and `Path.touch()`.
 - `DataSinkTask.run()` avoids `ThreadPoolExecutor(0)` by using `max(1, len(self.input_datasets))`, which prevents a runtime error when `input_datasets` is empty.
 - The comment in `DataFrame.to_pandas()` and `DataFrame.to_arrow()` explains a real risk (DuckDB thread-safety).
+**Additional Context From Model A CoT Summary**
+- Bug 1: Fix in `DataSinkTask.run()` for empty inputs is a real crash fix (ValueError on `ThreadPoolExecutor(0)`), but it is not related to termination cleanup.
+- Bug 2: Sequential `DataFrame.to_pandas()` and `DataFrame.to_arrow()` avoids thread-unsafe DuckDB default connection, but it is not related to termination cleanup.
+- Bug 3: `Task.run_on_ray()` atomic retry marker fixes TOCTOU, preventing concurrent retries overwriting outputs, but it is not a termination cleanup fix.
 
 **Cons**
 - The prompt requirement is not implemented. There is no cleanup on termination path touching `Task.clean_output()` or removing `RuntimeContext.temp_root` for a terminated task. The flow in `Task.cleanup()` and `Scheduler.clean_temp_files()` is unchanged.
@@ -89,4 +93,4 @@ Prompt: fix improper cleanup on task termination so partial outputs and temp dir
 | Ready for review / merge | Tie (0) | Both are not ready due to missing termination cleanup and missing tests. |
 
 **Which Model Is Better and Why**
-Model B is better overall because it at least touches the partial-output problem by clearing files in `DataSinkTask.collect_output_files()`. Model A does not implement termination cleanup at all and removes a cleanup step, plus it introduces unrelated changes in `DataFrame.to_pandas()` and `DataFrame.to_arrow()` that are outside the prompt. Neither model adds the required tests, so both are still not ready to merge.
+Model B is better overall because it at least touches the partial-output problem by clearing files in `DataSinkTask.collect_output_files()`. Model A’s changes are valid bug fixes (empty input crash, DuckDB thread-safety, and Ray retry TOCTOU), but they are not part of the termination-cleanup requirement. Neither model adds the required tests, so both are still not ready to merge.
