@@ -1,10 +1,10 @@
 **Created:** *<span color ="cyan"></span>* <span style="color: green; font-style:italic;"> 05.02.2026, : </span>
 
 **UUID:**
-4f3aa152-25d5-4dd1-a4d5-651084521713
+6f738001-9afa-4905-b7f2-54ec615dca25
 
 **Task ID:**
-4f3aa152-25d5-4dd1-a4d5-651084521713
+
 
 **git rev-parse HEAD:**
 52ecc5e45535c7448f848bcb45b0da00d9484f81
@@ -26,10 +26,13 @@ cc_agentic_coding
 [[14B COT]]
 
 actual problem:
-Cleanup on task termination Scope: task.py — ensure partial outputs and temp dirs are removed when a task is terminated. that is the actual thing to do which
+- Cleanup on task termination Scope: task.py — ensure partial outputs and temp dirs are removed when a task is terminated.
+
+- Fix the issue where the cleanup is improper. Make sure partial outputs and temp directories are removed properly when a task is terminated. Add tests to check for this
 
 ### Turn 1 Prompt:
-- Fix the issue where the cleanup is improper. Make sure partial outputs and temp directories are removed properly when a task is terminated. Add tests to check for this
+
+- Fix the issue where, when running smallpond sometimes there is an error saying Ouput already exists and sometimes the results are mixed or incomplete
 
 ### Turn 1 Eval Table:
 
@@ -48,6 +51,8 @@ Cleanup on task termination Scope: task.py — ensure partial outputs and temp d
 
 #### Model A:
 - Pros:
+	- clear behavior stated and executed in `session.shutdown()`, which handles termination using the `_terminated` flag
+	- Test document 
 	
 - Cons:
 

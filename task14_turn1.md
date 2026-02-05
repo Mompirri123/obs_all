@@ -1,94 +1,92 @@
 **Scope**
-Review Model A and Model B for:
-“Fix the issue where the cleanup is improper. Make sure partial outputs and temp directories are removed properly when a task is terminated. Add tests to check for this.”
-Focus: `smallpond/execution/task.py` termination cleanup and related tests.
+Prompt: fix improper cleanup on task termination so partial outputs and temp directories are removed, and add tests. Backward compatibility is not required by the prompt, so I do not penalize compatibility breaks. I only credit it if present.
 
-**Model A**
-**Flow (how the option is applied)**
-1. `Session.shutdown()` in `smallpond/dataframe.py` writes job status based on `finished` and `_terminated`.
-2. If `_terminated` is `True`, `Session.shutdown()` logs “terminated” and **does not** call `RuntimeContext.cleanup(...)` or `RuntimeContext.cleanup_partial(...)`.
-3. `Task.cleanup()` in `smallpond/execution/task.py` only disables profiling and calls `Task.clean_complex_attrs()`.
-4. There is **no** `Task.terminate()` implementation in `smallpond/execution/task.py` to remove `Task.runtime_output_abspath` or `Task.temp_abspath` when a task is terminated.
-5. Executor termination flow (`Executor.exec_loop()` → `StopWorkItem` → `SimplePoolTask.terminate()`) kills the worker process but does not invoke `Task.cleanup()` or any per‑task cleanup.
+**Model A Review**
+**What Changed**
+- `Task.run_on_ray()` changes the retry marker creation to an atomic `os.open(..., O_CREAT|O_EXCL)` loop in the inner `exec_task()` in `A/smallpond/execution/task.py`.
+- `DataSinkTask.run()` now builds the pool with `ThreadPoolExecutor(min(32, max(1, len(self.input_datasets))))` in `A/smallpond/execution/task.py`.
+- `DataSinkTask.collect_output_files()` no longer removes pre-existing files in `runtime_output_abspath` in `A/smallpond/execution/task.py`.
+- `DataFrame.to_pandas()` and `DataFrame.to_arrow()` remove `ThreadPoolExecutor` use and run sequentially in `A/smallpond/dataframe.py`.
 
-**New or modified functions/parameters**
-- `Session._terminated` flag in `smallpond/dataframe.py` and shutdown logic that preserves runtime directories when terminated.
-- No new termination cleanup functions in `smallpond/execution/task.py`.
+**Flow (Call Chain) As Implemented**
+- Ray path: `Task.run_on_ray()` -> inner `exec_task()` -> atomic marker creation using `task.ray_marker_path` -> `task.exec()` -> `task.output` dump. This flow is in `A/smallpond/execution/task.py` and is unrelated to termination cleanup.
+- Output sink path: `Task.exec()` (from `WorkItem.exec()` in `smallpond/execution/workqueue.py`) -> `DataSinkTask.run()` -> `DataSinkTask.collect_output_files()` using a pool sized by `len(self.input_datasets)`. No cleanup of `runtime_output_abspath` happens in this path in Model A.
+- DataFrame path: `DataFrame.to_pandas()` / `DataFrame.to_arrow()` -> `self._compute()` -> sequential per-dataset conversion. This is unrelated to termination cleanup.
 
-**Tests added/updated and what they prove**
-- `tests/test_session.py`:
-  - `test_shutdown_no_cleanup_on_termination` proves `Session.shutdown()` preserves `queue_root`, `staging_root`, and `temp_root` when `_terminated` is set.
-  - `test_shutdown_no_cleanup_on_termination_with_partial_output` proves partial outputs in `staging_root` are preserved when terminated.
-  - `test_terminated_flag_prevents_cleanup_even_when_tasks_finished` proves `_terminated` overrides successful completion and prevents cleanup.
+**New or Modified Functions / Parameters**
+- Modified function body: `Task.run_on_ray()` inner `exec_task()` in `A/smallpond/execution/task.py`.
+- Modified function body: `DataSinkTask.run()` in `A/smallpond/execution/task.py`.
+- Modified function body: `DataSinkTask.collect_output_files()` in `A/smallpond/execution/task.py`.
+- Modified function bodies: `DataFrame.to_pandas()` and `DataFrame.to_arrow()` in `A/smallpond/dataframe.py`.
+- No new parameters added.
 
-**Pros**
-- Clear explicit behavior in `Session.shutdown()` for termination via `_terminated` flag.
-- Tests document preservation behavior on termination in `tests/test_session.py`.
-
-**Cons**
-- The prompt requires cleanup on task termination, but `Session.shutdown()` in `smallpond/dataframe.py` explicitly **avoids** cleanup when `_terminated` is `True`.
-- `Task.cleanup()` in `smallpond/execution/task.py` does not remove `runtime_output_abspath` or `temp_abspath` for terminated tasks.
-- There is no `Task.terminate()` in `smallpond/execution/task.py`, so the executor’s termination path (`SimplePoolTask.terminate()`) does not clean per‑task outputs.
-- Tests validate preserving partial outputs on termination, which is opposite of the prompt.
-
-**PR readiness**
-- Not ready. Model A implements preservation on termination, not cleanup.
-
-**Concrete next‑turn fixes**
-1. Add `Task.terminate()` in `smallpond/execution/task.py` to remove `runtime_output_abspath` and `temp_abspath`.
-2. Update the executor termination path to call a cleanup hook after `SimplePoolTask.terminate()`.
-3. Replace termination‑preservation tests with tests that assert cleanup on termination.
-
-**Model B**
-**Flow (how the option is applied)**
-1. `Session.shutdown()` in `smallpond/dataframe.py` writes job status based on `finished`.
-2. If `finished` is `False`, `Session.shutdown()` calls `RuntimeContext.cleanup_partial()` which removes `queue_root`, `temp_root`, and `staging_root` but preserves `output_root` and `log_root`.
-3. `Task.cleanup()` in `smallpond/execution/task.py` calls `Task._cleanup_partial_output()` when `WorkStatus` is `FAILED` or `CRASHED`, removing `runtime_output_abspath` and `temp_abspath`.
-4. Executor termination (`StopWorkItem` → `SimplePoolTask.terminate()`) still kills the worker process and does not directly call a `Task.terminate()` method.
-
-**New or modified functions/parameters**
-- `RuntimeContext.cleanup_partial()` in `smallpond/execution/task.py` (already present) is used from `Session.shutdown()`.
-- `Task._cleanup_partial_output()` in `smallpond/execution/task.py` removes partial output and temp on crash/failure.
-
-**Tests added/updated and what they prove**
-- `tests/test_session.py`:
-  - `test_shutdown_cleanup_partial_on_failure` verifies `Session.shutdown()` calls `RuntimeContext.cleanup_partial()` when tasks fail.
-  - `test_cleanup_partial_removes_temp_and_staging` verifies `RuntimeContext.cleanup_partial()` removes `queue_root`, `temp_root`, and `staging_root` but not `output_root` or `log_root`.
-  - `test_task_cleanup_removes_partial_output_on_crash` verifies `Task._cleanup_partial_output()` is triggered for `WorkStatus.CRASHED` and removes `runtime_output_abspath` and `temp_abspath`.
-  - `test_task_cleanup_preserves_output_on_success` verifies successful tasks keep outputs.
+**Tests Added or Changed**
+- None. There are no new or changed tests in `A/tests/` that assert cleanup on termination, partial output removal, or temp directory removal.
 
 **Pros**
-- `Task._cleanup_partial_output()` in `smallpond/execution/task.py` ensures partial outputs and temp directories are removed on crash/failure.
-- `Session.shutdown()` cleans runtime directories on failure via `RuntimeContext.cleanup_partial()`.
-- Tests validate runtime and task‑level cleanup behavior on failure/crash.
+- The retry slot claim in `Task.run_on_ray()` is more race-safe because `os.open(..., O_CREAT|O_EXCL)` removes the time gap between `os.path.exists()` and `Path.touch()`.
+- `DataSinkTask.run()` avoids `ThreadPoolExecutor(0)` by using `max(1, len(self.input_datasets))`, which prevents a runtime error when `input_datasets` is empty.
+- The comment in `DataFrame.to_pandas()` and `DataFrame.to_arrow()` explains a real risk (DuckDB thread-safety).
 
 **Cons**
-- The prompt is specifically about **task termination**, but there is no `Task.terminate()` hook in `smallpond/execution/task.py` and the executor kill path does not trigger cleanup.
-- Cleanup on termination is only indirectly covered as “failure” in `Session.shutdown()`, not a per‑task termination flow.
-- No test explicitly simulates a `StopWorkItem` termination and asserts cleanup of `Task.runtime_output_abspath` and `Task.temp_abspath`.
+- The prompt requirement is not implemented. There is no cleanup on termination path touching `Task.clean_output()` or removing `RuntimeContext.temp_root` for a terminated task. The flow in `Task.cleanup()` and `Scheduler.clean_temp_files()` is unchanged.
+- `DataSinkTask.collect_output_files()` no longer removes pre-existing files. That can leave stale partial outputs in `runtime_output_abspath` and mix old and new data.
+- The changes in `DataFrame.to_pandas()` and `DataFrame.to_arrow()` are unrelated to the prompt and add risk of performance regression without tests.
+- No tests validate cleanup on termination, partial output removal, or temp directory removal.
 
-**PR readiness**
-- Partially ready. The failure/crash cleanup is correct, but task termination cleanup is not explicitly handled or tested.
+**PR Readiness**
+- Not ready. The core requirement (termination cleanup) is missing and no tests were added.
 
-**Concrete next‑turn fixes**
-1. Add `Task.terminate()` in `smallpond/execution/task.py` and call it from the executor termination path after `SimplePoolTask.terminate()`.
-2. Add a test that simulates termination (e.g., set `WorkStatus.EXEC_FAILED` or directly call `Task.terminate()`) and verifies `runtime_output_abspath` and `temp_abspath` are removed.
-3. Clarify in `Session.shutdown()` comments that termination should use the same cleanup as failure for task outputs.
+**Concrete Next-Turn Fixes**
+1. Add a termination cleanup path. Example: in `WorkItem.exec()` or in the executor termination path, call `Task.clean_output(force=True)` for a task that ends with `WorkStatus.CRASHED` or executor termination, and remove `RuntimeContext.temp_root` and `RuntimeContext.staging_root` if the job is being shut down. Call sites should be explicit, for example in `Scheduler.clean_temp_files()`.
+2. Ensure temp output directories are removed for terminated tasks: call `remove_path(task.temp_abspath)` inside a new `Task.cleanup_on_terminate()` or directly inside the termination handling path.
+3. Add tests in `tests/test_execution.py` that:
+- Simulate a terminated task (raise a controlled exception mid-run) and assert `task.runtime_output_abspath` and `task.final_output_abspath` are removed after cleanup.
+- Simulate a job shutdown and assert `RuntimeContext.temp_root` and `RuntimeContext.staging_root` are removed.
+- Edge case: `DataSinkTask` with pre-existing output files and subdirectories should be fully removed, not only top-level files.
 
-**Comparison table**
-| Question of which is / has           | Answer Given | Justoification Why? |
-| ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              | -3 (Model B) | Model B at least removes partial outputs on failure/crash via `Task._cleanup_partial_output()` and `RuntimeContext.cleanup_partial()`. Model A preserves partial outputs on termination. |
-| Better logic and correctness         | -3 (Model B) | `Task.cleanup()` in B removes `runtime_output_abspath` and `temp_abspath` for crashes; A does not. |
-| Better Naming and Clarity            | -1 (Model B) | `cleanup_partial()` and `_cleanup_partial_output()` in B are aligned with their behavior; A’s termination behavior conflicts with the prompt intent. |
-| Better Organization and Clarity      | -1 (Model B) | Cleanup logic is centralized in `RuntimeContext.cleanup_partial()` and `Task._cleanup_partial_output()` in B. |
-| Better Interface Design              | 0 (Tie)      | Neither model adds a `Task.terminate()` API, so interface coverage is incomplete in both. |
-| Better error handling and robustness | -2 (Model B) | B cleans partial outputs on failure/crash; A leaves them in more cases. |
-| Better comments and documentation    | -1 (Model B) | B’s tests document cleanup behavior, while A’s tests document preservation, which is contrary to the prompt. |
-| Ready for review / merge             | -2 (Model B) | B is closer but still missing explicit task‑termination cleanup tests and hook. |
+**Model B Review**
+**What Changed**
+- `DataSinkTask.collect_output_files()` removes pre-existing files and symlinks from `runtime_output_abspath` before copying/linking outputs in `B/smallpond/execution/task.py`.
 
-**Overall justification**
-Model B is closer to the prompt because it cleans partial outputs and temp directories on failure/crash via `Task._cleanup_partial_output()` and `RuntimeContext.cleanup_partial()`. Model A explicitly keeps partial outputs on termination in `Session.shutdown()`, which is the opposite of the requested behavior. Neither model fully implements task‑termination cleanup because there is no `Task.terminate()` hook in `smallpond/execution/task.py` or a test that validates cleanup for a terminated task. Backward compatibility is not a concern here, so there is no penalty for changing cleanup behavior.
+**Flow (Call Chain) As Implemented**
+- Output sink path: `Task.exec()` (from `WorkItem.exec()` in `smallpond/execution/workqueue.py`) -> `DataSinkTask.run()` -> `DataSinkTask.collect_output_files()` -> cleanup of top-level files in `runtime_output_abspath` -> output collection and link/copy. This is the only cleanup added and it only runs when the `DataSinkTask` executes normally.
 
-**Test status**
-I did not run tests in this review.
+**New or Modified Functions / Parameters**
+- Modified function body: `DataSinkTask.collect_output_files()` in `B/smallpond/execution/task.py`.
+- No new parameters added.
+
+**Tests Added or Changed**
+- None. There are no new or changed tests in `B/tests/` that assert cleanup on termination, partial output removal, or temp directory removal.
+
+**Pros**
+- The cleanup loop in `DataSinkTask.collect_output_files()` reduces mixing of stale files when the output directory already exists, which partially addresses “partial outputs” for re-runs.
+- The change is localized to the output sink and does not affect other task types.
+
+**Cons**
+- The prompt requirement is not implemented. There is no termination cleanup path that runs when a task is killed, so `Task.clean_output()` and `RuntimeContext.temp_root` are not guaranteed to be cleaned on termination.
+- Cleanup only deletes top-level files and symlinks. It does not remove subdirectories inside `runtime_output_abspath`, so partial outputs in nested directories remain.
+- No tests validate cleanup on termination, partial output removal, or temp directory removal.
+
+**PR Readiness**
+- Not ready. The core requirement (termination cleanup) is missing and no tests were added.
+
+**Concrete Next-Turn Fixes**
+1. Add explicit termination cleanup: ensure `Task.clean_output(force=True)` runs when a task is terminated, and remove `RuntimeContext.temp_root` during job shutdown.
+2. Expand cleanup logic to remove directories, not only files, when clearing partial outputs. Use `remove_path(runtime_output_dir)` instead of iterating only files.
+3. Add tests in `tests/test_execution.py` for termination cleanup and temp directory removal, including a case with nested output directories.
+
+**Comparison Table**
+| | ------------------------------------ | ------------ | ------------------- |
+| question | which is better | reasoning / justification |
+| Overall Better Solution | Model B (-3) | Model B at least attempts to remove stale outputs in `DataSinkTask.collect_output_files()`, while Model A does not address the cleanup requirement and removes that cleanup path entirely. |
+| Better logic and correctness | Model B (-2) | The cleanup loop in `DataSinkTask.collect_output_files()` is closer to “remove partial outputs,” even though it is not on termination. Model A’s changes are mostly unrelated. |
+| Better Naming and Clarity | Tie (0) | Both changes are small and the added comments are clear; no naming improvements were made. |
+| Better Organization and Clarity | Tie (0) | No meaningful refactor or structure change in either model. |
+| Better Interface Design | Tie (0) | No new parameters or interfaces were added. |
+| Better error handling and robustness | Model B (-1) | Deleting stale outputs in `DataSinkTask.collect_output_files()` reduces mixed output risks. Model A improves unrelated robustness in `Task.run_on_ray()` but does not address cleanup. |
+| Better comments and documentation | Tie (0) | Model A adds comments about DuckDB thread-safety, Model B adds comments about output cleanup. Both are fine but not for the prompt. |
+| Ready for review / merge | Tie (0) | Both are not ready due to missing termination cleanup and missing tests. |
+
+**Which Model Is Better and Why**
+Model B is better overall because it at least touches the partial-output problem by clearing files in `DataSinkTask.collect_output_files()`. Model A does not implement termination cleanup at all and removes a cleanup step, plus it introduces unrelated changes in `DataFrame.to_pandas()` and `DataFrame.to_arrow()` that are outside the prompt. Neither model adds the required tests, so both are still not ready to merge.
