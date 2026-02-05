@@ -56,3 +56,31 @@
 
 # turn 3
 
+  Summary
+
+  smallpond/execution/task.py
+
+  Added three modular methods to DataSinkTask:
+
+  1. _get_stable_sort_key(p: Path) -> Tuple[str, str] — Returns (parent.name, grandparent.name) as a sort key. This is stable across different absolute path prefixes because it only uses the immediate directory names, not the full path.  2. deduplicate_filenames(src_paths: List[Path]) -> List[str] — Core deduplication logic:
+    - Files with unique names keep their original name
+    - Duplicates get per-group indices (not global indices)
+    - Indices are assigned by sorting duplicates using the stable sort key
+    - This ensures the same relative directory structure always produces the same output names
+  2. resolve_dst_paths(src_paths: List[Path], output_dir: Path) -> List[Path] — Convenience method that combines deduplication with output directory joining.
+  3. collect_output_files() — Now calls self.resolve_dst_paths() instead of inline logic.
+
+  tests/test_execution.py
+
+  Added 6 new tests (replacing the old 1):
+
+| Test                                                         | Type | What it verifies                                                                                                                        |
+| ------------------------------------------------------------ | ---- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| test_get_stable_sort_key                                     | Unit | Sort key is (parent.name, grandparent.name) and consistent across different absolute prefixes                                           |
+| test_deduplicate_filenames                                   | Unit | No-dup passthrough, per-group indexing, uniqueness, determinism, order-independence                                                     |
+| test_resolve_dst_paths                                       | Unit | Output dir joining, mixed unique/duplicate paths                                                                                        |
+| test_deduplicate_filenames_stable_across_path_prefix_changes | Unit | Same relative structure under different roots produces identical names, with shuffled input verification                                |
+| test_collect_output_files_stable_with_varying_parent_paths   | Unit | Simulates multiple job runs with different absolute paths but same relative structure — verifies all produce identical output filenames |
+| test_data_sink_deterministic_filenames_e2e                   | E2E  | Runs the full plan twice in different temp directories, verifies identical output filenames                                             |
+
+✳ Herding… (esc to interrupt · 4m 52s · ↓ 5.9k tokens)

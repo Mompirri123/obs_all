@@ -60,3 +60,17 @@ Summary:
 
 # turn 3
 
+summary of the changes:
+
+  smallpond/execution/task.py
+
+  - _relative_sort_key(path, common_parent) — New static method. Computes path.relative_to(common_parent) as a string sort key, stripping the volatile prefix (staging root, job root) so sorting depends only on the stable structural parts of the path (task class, node id, task id). Falls back to path.parent.name if the path isn't under common_parent.
+  - deduplicate_filenames(src_paths) — Now computes common_parent = os.path.commonpath(...) across all source paths' parents, then sorts each duplicate group by the relative path from that common parent instead of the full absolute path. This means:
+  - /tmp/run1/staging/Task.042/aaaa.000042.0.0/file and /var/run2/staging/Task.042/zzzz.000042.0.0/file produce the same relative key (Task.042/{job_id}.000042.0.0/file) and the same index, because commonpath strips the divergent prefix and the remaining sort keys (000042, 000043, etc.) are plan-stable.
+
+  tests/test_execution.py
+
+  - test_deduplicate_filenames_stable_across_path_prefix_changes — Rewritten to simulate realistic runtime paths ({root}/staging/{TaskClass}.{node}/{job_id}.{task_id}.{epoch}.{retry}/file) with 3 different roots and 3 different job IDs. Verifies all produce identical output names. Also tests multiple duplicate groups with mixed filenames.
+  - test_collect_output_files_stable_across_runs — New end-to-end test that runs the same logical plan 3 times in different TemporaryDirectory output dirs (simulating the parent path changing every turn). Asserts that the sorted filenames from each run are byte-identical.
+
+✻ Deliberating… (esc to interrupt · 5m 22s · ↓ 7.1k tokens)

@@ -1,10 +1,10 @@
 **Created:** *<span color ="cyan"></span>* <span style="color: green; font-style:italic;"> 03.02.2026, 14:38 </span>
 
 **UUID:**
-
+5f1f91f8-8745-49ee-a7ed-ccf56280078a
 
 **Task ID:**
-
+5f1f91f8-8745-49ee-a7ed-ccf56280078a
 
 **git rev-parse HEAD:**
 
@@ -70,7 +70,7 @@ When names of files are same the way they are handled now is by adding an index 
 
 ### Turn 2 Prompt:
 
-There are still some gaps like, Hashing the whole path name fails to have same for same input file when Absolute / full path is changed. Use functions implemented in the main code for tests instead of r implementing the whole logic, and add end to end tests. Rename logic could and other complex logic in `collect_output_files()` and other functions could be modularized and can be called directly in main logic / code and tests
+There are still some gaps like, Hashing the whole path name fails to have same for same input file when Absolute / full path is changed. Use functions implemented in the main code for tests instead of r implementing the whole logic, and add end to end tests. Rename logic is complex logic in `collect_output_files()`, in addition other functions could be modularized and can be called directly in main logic / code and tests
 
 ### Turn 2 Eval Table:
 
@@ -135,13 +135,24 @@ The implementation still has some small gaps like `deduplicate_filenames()`, tha
 
 #### Model A:
 - Pros:
+	- Uses Relative key `_relative_sort_key()`, this removes any direct dependency on path. maintains modular logic and these moduled functions are also called in the tests. End to end stability is also checked using`test_collect_...._runs`. `test_collect_output_files_stable_across_runs`checks that the names are unique across runs with different output and parent directory paths. Well tested implementation.
 	
 - Cons:
-
-
+	- Complex logic, `_relative_sort_key`which sorts the duplicates by relative paths is not explicitly tested though it is used in other tests (indirectly tested but no direct test present)
+	
 #### Model B:
 - Pros:
+	- Direct dependency on absolute path is removed by using directory naming dependent logic with `_get_stable_sort_key`, and tested (`test_ge..._key`). Relative naming stability is also tested. Has end to end indexing / naming stability test (`test_...e2e`)  
 	
 - Cons:
+	- `get_stable_sort_key`(relative key) tests for parent and grand parent names, if some duplicates share those names but differ at grand grand parent or later index could become dependent on input order instead. `_get_stable_sort_key`is not actually  a relative key approach that was requested for
 
 #### Justification for best overall
+
+- I think Model A is 'better' over all as it uses a relative sort key and is end to end tested where as Model B uses parent and grand parent names for indexing, this logic breaks as soon the duplicate share those 2 but not the grand grand parent or so. This means Model A handles the requirement and Model B has does not (potential risks); though its simpler to understand than A. Also B doesnt implement the relative key approach that was asked for. That said both the models have good comments and explain their chosen key and how they are gonna use them. Also, model A has better tests overall like `collect_output_files()`in A that is end to end vs `collect....` which only calls `resolve_dst_paths` 
+
+
+
+![[Pasted image 20260204044651.png]]
+
+![[Pasted image 20260204044734.png]]
