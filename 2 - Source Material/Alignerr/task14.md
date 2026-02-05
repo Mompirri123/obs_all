@@ -25,9 +25,11 @@ cc_agentic_coding
 [[14A COT]]
 [[14B COT]]
 
+actual problem:
+Cleanup on task termination Scope: task.py — ensure partial outputs and temp dirs are removed when a task is terminated. that is the actual thing to do which
 
 ### Turn 1 Prompt:
-- Fix the issue where the cleanup is improper. Make sure partial outputs and temp directories are not removed properly when a task is terminated. Add tests to check for this
+- Fix the issue where the cleanup is improper. Make sure partial outputs and temp directories are removed properly when a task is terminated. Add tests to check for this
 
 ### Turn 1 Eval Table:
 
