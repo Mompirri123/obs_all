@@ -51,17 +51,32 @@ actual problem:
 
 #### Model A:
 - Pros:
-	- clear behavior stated and executed in `session.shutdown()`, which handles termination using the `_terminated` flag
-	- Test document 
+	- More safe from hitting race conditions, as they occur less frequently with the time gap between `path.exists` and `path.touch` is removed
+	- `max(1, len(....))` avoids `ThreadPoolExecutor(0)`, preventing runtime errors if input database was empty
 	
 - Cons:
-
+- Main requirement is unimplemented. No cleanup on termination, never calls `Task.clean_output()`  or  nothing that removes the `RuntimeContext.temp_root` when termination occurs
+- No longer removes pre existing files. this means more mixing of old and new data
+- Improvements are made to things unrelated to the requirement
+- No tests to check cleanup on temination, and removal of partial output, and removal of temporary directories
 #### Model B:
 - Pros:
+	- Cleanup loop in `collect_output_files()` makes mixing of old files reduced when the output directory is already existing. This reduces the amount of 'partial outputs' we want to fix
+	- all changes are related to the output and do not affect other type of tasks
 	
 - Cons:
+	- Doesnot implement the prompt requirements. There is no termination cleanup sequence that runs when a task is killed / terminated, this means that `Task.clean_output()` and `RuntimeContext.temp_root` are not sure to be cleaned on termination
+	- Only deletes symlinks and files on the top most level (no sub folder removal). so partial outputs still remain when there are nested directories
+	- No tests to check cleanup on termination, partial output removal, or temporary folders removal
 
 #### Justification for best overall
+
+- I think Model B is slightly better than Model A this is because
+	- Model B at least cleans partial outputs in `DataSinkTask.collect_output_files()`.
+	- Model A does not clean partial outputs and does not add any termination cleanup at all.
+	- Model A does have some bug fixes but are completely unrelated to the requirements.
+	- Both fail to add new tests
+	- So though both models fail to meet the primary requirement of the prompt, model B is slightly better than A 
 
 ---
 
