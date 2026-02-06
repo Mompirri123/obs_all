@@ -51,6 +51,7 @@ Fix the following issue where, many small memory allocations and frees which cou
 
 #### Model A:
 - Pros:
+	- 
 	
 - Cons:
 

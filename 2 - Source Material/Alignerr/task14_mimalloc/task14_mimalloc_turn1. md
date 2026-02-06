@@ -1,17 +1,15 @@
-
 **Scope Check**
-
-- Prompt had 2 parts: allocator performance and cleanup of partial outputs/temp directories on task termination.
-- Model A and Model B only change allocator performance. I see no code or tests for cleanup/termination handling in either model.
-- Backward compatibility is not a requirement in this prompt, so I do not subtract points if it is not preserved.
+- Prompt only targets allocator performance for many small allocations/frees and asks to test improvements.
+- No cleanup/termination requirement in this prompt.
+- Backward compatibility is not required; I do not subtract points if it is not preserved.
 
 **Model A Review (folder `A/`)**
 
 **Flow (call chain and parameters)**
-1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(heap,size,zero,usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `mi_find_free_page(mi_heap_t* heap, size_t size)` in `A/src/page.c`.
+1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(mi_heap_t* heap, size_t size, bool zero, size_t* usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `mi_find_free_page(mi_heap_t* heap, size_t size)` in `A/src/page.c`.
 2. In `mi_find_free_page(...)`, the new guard `if (page->free == NULL) _mi_page_free_collect(page,false);` skips collection when `page->free` is already available, reducing atomic work in hot small-alloc loops.
 3. If the page is expandable, `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)` now increases `max_extend` for `bsize <= MI_SMALL_OBJ_SIZE_MAX`, so extend batches are larger and fewer calls fall back to `_mi_malloc_generic(...)`.
-4. Free/retire path: `mi_free(p)` -> `_mi_page_free(...)` -> `mi_page_retire(mi_page_t* page)` sets `page->retire_expire` using new `MI_RETIRE_CYCLES_SMALL` when `bsize <= MI_SMALL_OBJ_SIZE_MAX`, keeping single-page queues alive longer.
+4. Free/retire path: `mi_free(p)` -> `_mi_page_free(mi_page_t* page, mi_page_queue_t* pq, bool force)` -> `mi_page_retire(mi_page_t* page)` sets `page->retire_expire` using new `MI_RETIRE_CYCLES_SMALL` when `bsize <= MI_SMALL_OBJ_SIZE_MAX`, keeping single-page queues alive longer to reuse pages.
 5. `_mi_page_free_collect(mi_page_t* page, bool force)` is reordered. In `force == true` it collects thread-free first, then merges `page->local_free` into `page->free` (append when needed). In `force == false` it first merges `page->local_free` to `page->free` only when `page->free == NULL`, then collects thread-free list if `mi_page_thread_free(page) != NULL`, and merges again only if `page->free == NULL`.
 
 **New or modified functions/parameters**
@@ -20,7 +18,7 @@
 - Modified `mi_find_free_page(mi_heap_t* heap, size_t size)` in `A/src/page.c`.
 - Modified `mi_page_retire(mi_page_t* page)` in `A/src/page.c`.
 - New macro `MI_RETIRE_CYCLES_SMALL` in `A/src/page.c`.
-- New test file `A/test/test-small-alloc.c` with new functions `test_small_sizes_correctness()`, `test_pingpong_throughput()`, `test_burst_pattern()`, `test_interleaved_burst()`, `test_zalloc_small()`, and helpers `get_time_sec()`, `write_sentinel()`, `check_sentinel()`.
+- New test file `A/test/test-small-alloc.c` with functions `test_small_sizes_correctness()`, `test_pingpong_throughput()`, `test_burst_pattern()`, `test_interleaved_burst()`, `test_zalloc_small()`, and helpers `get_time_sec()`, `write_sentinel()`, `check_sentinel()`.
 - CMake change in `A/CMakeLists.txt` adds target `small-alloc`.
 
 **Tests added and what they prove**
@@ -37,23 +35,22 @@
 - New tests in `test-small-alloc.c` include correctness checks and performance floors tied to realistic patterns.
 
 **Cons**
-- Missing the second prompt requirement: no code or tests for cleanup of partial outputs or temp directories on termination.
 - `mi_page_extend_free()` now extends up to half remaining reserved for all small sizes; this can increase RSS and commit pressure.
 - `MI_RETIRE_CYCLES_SMALL` keeps pages longer, which may increase memory footprint after bursts.
 - `test-small-alloc.c` is time-based and heavy; `MIN_THROUGHPUT_MPAIRS_PER_SEC` may fail on slow CI or sanitizer builds, and `clock_gettime()` with `CLOCK_MONOTONIC` is not guarded for Windows.
 
 **PR readiness**
-- Not ready. Cleanup/termination requirement is unimplemented and untested. Performance tests are likely flaky and not portable as-is.
+- Not ready. The logic is plausible but the performance tests are likely flaky/slow and not portable.
 
 **Concrete next-turn fixes**
-1. Implement termination cleanup in the correct subsystem and add tests that verify temp directories and partial outputs are removed when a task is killed.
-2. Add platform guards or a timing abstraction for `clock_gettime()` in `test-small-alloc.c` and relax/disable throughput floors for ASAN/TSAN/slow CI.
-3. Consider making `MI_RETIRE_CYCLES_SMALL` and the small-block extend heuristic configurable or gated by a build option to reduce memory-risk.
+1. Add platform guards or a timing abstraction for `clock_gettime()` in `test-small-alloc.c` and relax/disable throughput floors for ASAN/TSAN/slow CI.
+2. Consider making `MI_RETIRE_CYCLES_SMALL` and the small-block extend heuristic configurable or gated by a build option to reduce memory-risk.
+3. Add a smaller, deterministic correctness-only test variant so CI does not depend on timing thresholds.
 
 **Model B Review (folder `B/`)**
 
 **Flow (call chain and parameters)**
-1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(heap,size,zero,usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `_mi_page_malloc_zero(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero, size_t* usable)` in `B/src/alloc.c`.
+1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(mi_heap_t* heap, size_t size, bool zero, size_t* usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `_mi_page_malloc_zero(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero, size_t* usable)` in `B/src/alloc.c`.
 2. In `_mi_page_malloc_zero(...)`, if `page->free == NULL` it now promotes `page->local_free` to `page->free` (sets `page->free_is_zero = false`) and avoids `_mi_malloc_generic(...)` in the common alloc/free/alloc pattern. If both are NULL, it still falls back to `_mi_malloc_generic(...)`.
 3. In `mi_find_free_page(mi_heap_t* heap, size_t size)` in `B/src/page.c`, `_mi_page_free_collect(page,false)` now runs only when `!mi_page_immediate_available(page)` (i.e., `page->free == NULL`), skipping atomics when blocks are already available.
 4. In `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)`, the first extend (`page->capacity == 0`) for `bsize <= MI_SMALL_OBJ_SIZE_MAX` allows `extend` up to `max_extend * 2`, so the page fills more eagerly on first use.
@@ -76,18 +73,17 @@
 - `mi_page_extend_free()` change is targeted to the first extend only, which is safer for memory usage than a global extend increase.
 
 **Cons**
-- Missing the second prompt requirement: no cleanup of partial outputs or temp directories on termination, and no tests for that.
 - `test-smallalloc-perf.c` is a benchmark, not a regression test. It returns success even if performance regresses.
 - The test file uses `pthread` and `clock_gettime()` without Windows guards, so it likely fails to build on Windows.
-- No performance assertions are added, so the prompt’s “test the improvements” is not fully satisfied.
+- No performance assertions are added, so the prompt’s “test the improvements” is only partially satisfied.
 
 **PR readiness**
-- Not ready. Cleanup/termination requirement is missing. The new “test” is a benchmark only and is not a reliable regression gate.
+- Not ready. The new test is a benchmark only and is not a reliable regression gate.
 
 **Concrete next-turn fixes**
-1. Implement termination cleanup and add targeted tests that verify temp/partial output removal.
-2. Convert `test-smallalloc-perf.c` into a real test (add `CHECK()` or thresholds) or move it under a benchmark-only build flag.
-3. Add portability guards for `pthread` and `clock_gettime()` or provide Windows alternatives.
+1. Convert `test-smallalloc-perf.c` into a real test (add `CHECK()` or thresholds) or move it under a benchmark-only build flag.
+2. Add portability guards for `pthread` and `clock_gettime()` or provide Windows alternatives.
+3. Add correctness coverage for size=1 and `MI_SMALL_SIZE_MAX`.
 
 **Comparison Table (rating scale: +4 Model A fully wins, -4 Model B fully wins)**
 | ------------------------------------ | ------------ | ------------------- |
@@ -100,12 +96,11 @@
 | Better Interface Design | Tie (0) | Neither model changes public interfaces; changes are internal. |
 | Better error handling and robustness | Model A (+1) | Model A’s tests fail on corruption and have explicit floors; Model B has only `abort()` on corruption and no performance checks. |
 | Better comments and documentation | Model A (+1) | Model A adds more explanatory comments in `mi_page_extend_free()` and `mi_page_retire()` and detailed test comments. |
-| Ready for review / merge | Model A (+1) | Both miss the cleanup requirement, but Model A is closer due to real tests. Still not ready. |
+| Ready for review / merge | Model A (+1) | Both need test portability fixes, but Model A is closer due to real tests. |
 
 **Which model is better and why**
 - Model A is better overall because it addresses more of the allocator churn problem with multiple coordinated changes (`mi_find_free_page()`, `mi_page_extend_free()`, `mi_page_retire()`) and adds real correctness and performance checks in `test-small-alloc.c`.
 - Model B is safer in correctness due to smaller scope, but it does not fully “test the improvements” since `test-smallalloc-perf.c` is a benchmark without pass/fail criteria.
-- Both models miss the termination cleanup requirement, so neither is ready to merge.
 
 **Test execution**
 - I did not run tests.
