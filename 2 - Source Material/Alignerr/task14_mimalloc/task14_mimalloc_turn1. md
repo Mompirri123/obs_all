@@ -1,4 +1,6 @@
+
 **Scope Check**
+
 - Prompt had 2 parts: allocator performance and cleanup of partial outputs/temp directories on task termination.
 - Model A and Model B only change allocator performance. I see no code or tests for cleanup/termination handling in either model.
 - Backward compatibility is not a requirement in this prompt, so I do not subtract points if it is not preserved.
