@@ -1,106 +1,172 @@
-**Scope Check**
-- Prompt only targets allocator performance for many small allocations/frees and asks to test improvements.
-- No cleanup/termination requirement in this prompt.
-- Backward compatibility is not required; I do not subtract points if it is not preserved.
+# Review Update: Model A vs Model B (Prompt 1)
 
-**Model A Review (folder `A/`)**
+Prompt reviewed:
+`Characters inside strings can modify their output by default. This leads to lost or misleading information when debugging.`
 
-**Flow (call chain and parameters)**
-1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(mi_heap_t* heap, size_t size, bool zero, size_t* usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `mi_find_free_page(mi_heap_t* heap, size_t size)` in `A/src/page.c`.
-2. In `mi_find_free_page(...)`, the new guard `if (page->free == NULL) _mi_page_free_collect(page,false);` skips collection when `page->free` is already available, reducing atomic work in hot small-alloc loops.
-3. If the page is expandable, `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)` now increases `max_extend` for `bsize <= MI_SMALL_OBJ_SIZE_MAX`, so extend batches are larger and fewer calls fall back to `_mi_malloc_generic(...)`.
-4. Free/retire path: `mi_free(p)` -> `_mi_page_free(mi_page_t* page, mi_page_queue_t* pq, bool force)` -> `mi_page_retire(mi_page_t* page)` sets `page->retire_expire` using new `MI_RETIRE_CYCLES_SMALL` when `bsize <= MI_SMALL_OBJ_SIZE_MAX`, keeping single-page queues alive longer to reuse pages.
-5. `_mi_page_free_collect(mi_page_t* page, bool force)` is reordered. In `force == true` it collects thread-free first, then merges `page->local_free` into `page->free` (append when needed). In `force == false` it first merges `page->local_free` to `page->free` only when `page->free == NULL`, then collects thread-free list if `mi_page_thread_free(page) != NULL`, and merges again only if `page->free == NULL`.
+Note on scoring scale used in table:
+- `+4` = Model A fully wins
+- `-4` = Model B fully wins
 
-**New or modified functions/parameters**
-- Modified `_mi_page_free_collect(mi_page_t* page, bool force)` in `A/src/page.c`.
-- Modified `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)` in `A/src/page.c`.
-- Modified `mi_find_free_page(mi_heap_t* heap, size_t size)` in `A/src/page.c`.
-- Modified `mi_page_retire(mi_page_t* page)` in `A/src/page.c`.
-- New macro `MI_RETIRE_CYCLES_SMALL` in `A/src/page.c`.
-- New test file `A/test/test-small-alloc.c` with functions `test_small_sizes_correctness()`, `test_pingpong_throughput()`, `test_burst_pattern()`, `test_interleaved_burst()`, `test_zalloc_small()`, and helpers `get_time_sec()`, `write_sentinel()`, `check_sentinel()`.
-- CMake change in `A/CMakeLists.txt` adds target `small-alloc`.
+## Model A Review
 
-**Tests added and what they prove**
-- `test_small_sizes_correctness()` proves `mi_malloc(size)` works for every size 1..`MI_SMALL_SIZE_MAX` and does not corrupt memory; edge cases are size=1 and size=`MI_SMALL_SIZE_MAX`.
-- `test_zalloc_small()` proves `mi_zalloc(size)` returns zeroed memory even after a dirty free; edge case is reusing the same block.
-- `test_pingpong_throughput()` proves alloc/free pairs meet `MIN_THROUGHPUT_MPAIRS_PER_SEC` for sizes `{1,8,16,32,64,128,256,512,1024,4096}`; edge case is the small/large end of the small bin range.
-- `test_burst_pattern()` proves bursts of `BURST_N` allocations reuse pages without corruption and meet the throughput floor; edge case is repeated burst rounds that would trigger retire/extend churn.
-- `test_interleaved_burst()` proves interleaved small sizes do not corrupt memory and meet throughput floor; edge case is multiple size classes in one loop.
+### Full flow of how the behavior is applied
+There is no new public option flag. The behavior is applied by default through the existing formatting pipeline:
 
-**Pros**
-- `mi_find_free_page()` avoids `_mi_page_free_collect()` when `page->free` is already non-NULL, reducing hot-path atomic cost.
-- `MI_RETIRE_CYCLES_SMALL` in `mi_page_retire()` directly targets single-page queues to reduce retire/alloc churn for small blocks.
-- `mi_page_extend_free()` increases extend batch for small blocks, which reduces repeated `_mi_malloc_generic()` fallbacks in bursty patterns.
-- New tests in `test-small-alloc.c` include correctness checks and performance floors tied to realistic patterns.
+1. `ic(...)` calls `IceCreamDebugger.__call__(self, *args)` in `A/icecream/icecream.py:320`.
+2. `__call__()` calls `self._format(callFrame, *args)` in `A/icecream/icecream.py:325`.
+3. `_format()` calls `_formatArgs(callFrame, prefix, context, args)` in `A/icecream/icecream.py:353`.
+4. `_formatArgs()` builds `pairs` and calls `_constructArgumentOutput(prefix, context, pairs)` in `A/icecream/icecream.py:374`.
+5. `_constructArgumentOutput()` converts each value with `self.argToStringFunction(val)` in `A/icecream/icecream.py:381`.
+6. `self.argToStringFunction` defaults to `argumentToString` from `IceCreamDebugger.__init__(..., argToStringFunction=argumentToString, ...)` in `A/icecream/icecream.py:311`.
+7. For string values, singledispatch routes to `@argumentToString.register(str)` in `A/icecream/icecream.py:291`.
+8. That string handler now calls `_escape_control_characters(s)` in `A/icecream/icecream.py:296` before returning final quoted output.
 
-**Cons**
-- `mi_page_extend_free()` now extends up to half remaining reserved for all small sizes; this can increase RSS and commit pressure.
-- `MI_RETIRE_CYCLES_SMALL` keeps pages longer, which may increase memory footprint after bursts.
-- `test-small-alloc.c` is time-based and heavy; `MIN_THROUGHPUT_MPAIRS_PER_SEC` may fail on slow CI or sanitizer builds, and `clock_gettime()` with `CLOCK_MONOTONIC` is not guarded for Windows.
+So the fix is automatically applied to all `str` values passed through default `ic` formatting.
 
-**PR readiness**
-- Not ready. The logic is plausible but the performance tests are likely flaky/slow and not portable.
+### New or modified functions/parameters
+- New function: `_escape_control_characters(s: str) -> str` in `A/icecream/icecream.py:259`.
+- Modified function: `@argumentToString.register(str)` handler in `A/icecream/icecream.py:291`.
+- Modified behavior in existing parameter use:
+  - Uses existing `argToStringFunction` parameter in `IceCreamDebugger.__init__` (`A/icecream/icecream.py:311`) to apply the new escaping through default call chain.
+- No new user-facing parameters were added.
 
-**Concrete next-turn fixes**
-1. Add platform guards or a timing abstraction for `clock_gettime()` in `test-small-alloc.c` and relax/disable throughput floors for ASAN/TSAN/slow CI.
-2. Consider making `MI_RETIRE_CYCLES_SMALL` and the small-block extend heuristic configurable or gated by a build option to reduce memory-risk.
-3. Add a smaller, deterministic correctness-only test variant so CI does not depend on timing thresholds.
+### Tests added and what each proves
+Added tests in `A/tests/test_icecream.py`:
 
-**Model B Review (folder `B/`)**
+1. `test_control_characters_in_strings_are_escaped` (`A/tests/test_icecream.py:701`)
+- Proves `\r`, `\x08`, `\x1b`, `\x07`, `\x0b`, `\x0c` are escaped in output.
+- Proves raw control chars are not present (`assertNotIn` raw chars), reducing terminal manipulation risk.
 
-**Flow (call chain and parameters)**
-1. Allocation path: `mi_malloc(size)` -> `mi_heap_malloc_small_zero(mi_heap_t* heap, size_t size, bool zero, size_t* usable)` -> `_mi_heap_get_free_small_page(heap, size + MI_PADDING_SIZE)` -> `_mi_page_malloc_zero(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero, size_t* usable)` in `B/src/alloc.c`.
-2. In `_mi_page_malloc_zero(...)`, if `page->free == NULL` it now promotes `page->local_free` to `page->free` (sets `page->free_is_zero = false`) and avoids `_mi_malloc_generic(...)` in the common alloc/free/alloc pattern. If both are NULL, it still falls back to `_mi_malloc_generic(...)`.
-3. In `mi_find_free_page(mi_heap_t* heap, size_t size)` in `B/src/page.c`, `_mi_page_free_collect(page,false)` now runs only when `!mi_page_immediate_available(page)` (i.e., `page->free == NULL`), skipping atomics when blocks are already available.
-4. In `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)`, the first extend (`page->capacity == 0`) for `bsize <= MI_SMALL_OBJ_SIZE_MAX` allows `extend` up to `max_extend * 2`, so the page fills more eagerly on first use.
+2. `test_newline_in_strings_preserved` (`A/tests/test_icecream.py:751`)
+- Proves multiline strings still print as multiline (readability retained).
+- Edge case: multiline output formatting remains intact while other controls are escaped.
 
-**New or modified functions/parameters**
-- Modified `_mi_page_malloc_zero(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero, size_t* usable)` in `B/src/alloc.c`.
-- Modified `mi_page_extend_free(mi_heap_t* heap, mi_page_t* page, mi_tld_t* tld)` in `B/src/page.c`.
-- Modified `mi_find_free_page(mi_heap_t* heap, size_t size)` in `B/src/page.c`.
-- New test/benchmark file `B/test/test-smallalloc-perf.c` with functions `bench_pingpong()`, `bench_burst()`, `bench_interleaved()`, `run_threaded()`, and helpers `alloc_small()`, `free_small()`.
-- CMake change in `B/CMakeLists.txt` adds target `smallalloc-perf`.
+3. `test_tab_in_strings_preserved` (`A/tests/test_icecream.py:763`)
+- Proves tabs are intentionally preserved as literal tab characters.
+- Edge case: safe/readability policy chooses not to escape `\t`.
 
-**Tests added and what they prove**
-- `test-smallalloc-perf.c` only proves basic corruption detection through `COOKIE` checks in `free_small()`. It does not assert any performance minimums or correctness for all size classes.
-- Multi-threaded paths exercise allocation/free concurrency, but there is no pass/fail on throughput or allocator behavior.
-- Edge case coverage is limited: sizes are fixed `{8,16,32,48,64,80,128,256}`, and it does not cover size=1 or `MI_SMALL_SIZE_MAX` boundary.
+4. `test_null_byte_in_strings_escaped` (`A/tests/test_icecream.py:772`)
+- Proves `\x00` is escaped and raw null is not printed.
 
-**Pros**
-- `_mi_page_malloc_zero()` promotes `page->local_free` to `page->free`, directly fixing the alloc/free/alloc hot loop without changing global logic.
-- `mi_find_free_page()` avoids `_mi_page_free_collect()` when `page->free` is already available, reducing atomic overhead.
-- `mi_page_extend_free()` change is targeted to the first extend only, which is safer for memory usage than a global extend increase.
+5. `test_delete_character_escaped` (`A/tests/test_icecream.py:781`)
+- Proves DEL `\x7f` is escaped.
+- Edge case coverage for DEL (often missed).
 
-**Cons**
-- `test-smallalloc-perf.c` is a benchmark, not a regression test. It returns success even if performance regresses.
-- The test file uses `pthread` and `clock_gettime()` without Windows guards, so it likely fails to build on Windows.
-- No performance assertions are added, so the prompt’s “test the improvements” is only partially satisfied.
+6. `test_mixed_control_characters_and_content` (`A/tests/test_icecream.py:790`)
+- Proves mixed content keeps normal text and newline/tab readability while escaping ANSI escape start.
 
-**PR readiness**
-- Not ready. The new test is a benchmark only and is not a reliable regression gate.
+### Pros (with exact functions/parameters)
+- Strongly targets the bug at the string conversion point in `@argumentToString.register(str)` (`A/icecream/icecream.py:291`), so it protects all normal `ic(...)` flows.
+- `_escape_control_characters()` (`A/icecream/icecream.py:259`) explicitly handles carriage return, backspace, bell, VT, FF, ANSI ESC, DEL.
+- Test set includes DEL coverage in `test_delete_character_escaped()` (`A/tests/test_icecream.py:781`), which Model B misses.
+- Uses existing `argToStringFunction` integration path (`A/icecream/icecream.py:311`, `A/icecream/icecream.py:381`) without adding API complexity.
 
-**Concrete next-turn fixes**
-1. Convert `test-smallalloc-perf.c` into a real test (add `CHECK()` or thresholds) or move it under a benchmark-only build flag.
-2. Add portability guards for `pthread` and `clock_gettime()` or provide Windows alternatives.
-3. Add correctness coverage for size=1 and `MI_SMALL_SIZE_MAX`.
+### Cons (with exact functions/parameters)
+- `_escape_control_characters()` preserves `\t` (`A/icecream/icecream.py:270`), so tab can still visually shift alignment.
+- One test (`test_control_characters_in_strings_are_escaped`) packs many assertions in one method (`A/tests/test_icecream.py:701`), which makes failures less isolated.
+- `setup.py` mode changed `100755 -> 100644` (from git diff); not functionally related to the prompt and adds review noise.
 
-**Comparison Table (rating scale: +4 Model A fully wins, -4 Model B fully wins)**
+### PR readiness (Model A)
+- Status: **Mostly ready**, minor cleanup recommended.
+- Evidence: New/targeted tests pass (`6 passed` for added-related set).
+- Caution: Full `tests/test_icecream.py` run has 2 unrelated failures in this environment, same for both models.
+
+### Concrete next-turn fixes for Model A
+1. Add explicit negative checks for raw `\r`/`\b` in separate tests to isolate failures better (split cases from `test_control_characters_in_strings_are_escaped`).
+2. Add a multiline injection-style test similar to `"line1\nic| fake...\rreal"` to prove no fake log line can be injected.
+3. Decide policy for `\t`: if strict "no output-modifying chars" is desired, escape tab in `_escape_control_characters()`.
+4. Revert non-essential file mode change in `setup.py` before merge.
+
+---
+
+## Model B Review
+
+### Full flow of how the behavior is applied
+Like Model A, it uses existing default formatter flow, with a different helper:
+
+1. `ic(...)` calls `IceCreamDebugger.__call__(self, *args)` in `B/icecream/icecream.py:344`.
+2. `__call__()` calls `self._format(callFrame, *args)` in `B/icecream/icecream.py:349`.
+3. `_format()` calls `_formatArgs(callFrame, prefix, context, args)` (same call chain as A).
+4. `_formatArgs()` calls `_constructArgumentOutput(prefix, context, pairs)`.
+5. `_constructArgumentOutput()` applies `self.argToStringFunction(val)` for each value.
+6. Default `argToStringFunction=argumentToString` is set in `IceCreamDebugger.__init__` in `B/icecream/icecream.py:335`.
+7. For strings, singledispatch routes to `@argumentToString.register(str)` in `B/icecream/icecream.py:319`.
+8. That handler now calls `_escape_for_display(s, escape_newlines=...)` in `B/icecream/icecream.py:259`.
+
+### New or modified functions/parameters
+- New function: `_escape_for_display(s: str, escape_newlines: bool = True) -> str` in `B/icecream/icecream.py:259`.
+- New parameter: `escape_newlines` in `_escape_for_display(...)` (`B/icecream/icecream.py:259`, documented at `B/icecream/icecream.py:275`).
+- Modified function: `@argumentToString.register(str)` in `B/icecream/icecream.py:320` to switch behavior for multiline/non-multiline cases.
+- Unrelated modifications in `B/setup.py`:
+  - Shebang line indented with spaces (`B/setup.py:1`) and
+  - Dependency changed from `executing>=2.1.0` to `executing>=0.8.0` (`B/setup.py:106`).
+
+### Tests added and what each proves
+Added tests in `B/tests/test_icecream.py`:
+
+1. `test_control_characters_are_escaped` (`B/tests/test_icecream.py:701`)
+- Proves escaped output appears for backspace, carriage return, tab, bell, ANSI.
+- Proves raw ESC is absent.
+
+2. `test_control_characters_in_multiline_strings` (`B/tests/test_icecream.py:745`)
+- Proves multiline strings still use triple-quote style and carriage return is escaped.
+- Edge case: includes fake `"ic| ..."` content plus `\r`, useful for injection-style readability risk.
+
+3. `test_null_and_other_control_characters` (`B/tests/test_icecream.py:758`)
+- Proves null, form-feed, vertical-tab get escaped forms.
+
+4. `test_mixed_control_and_regular_characters` (`B/tests/test_icecream.py:782`)
+- Proves regular content remains visible while control chars become escaped text.
+
+### Pros (with exact functions/parameters)
+- `_escape_for_display(..., escape_newlines)` (`B/icecream/icecream.py:259`) gives clearer internal interface than A’s helper.
+- Escapes tab by default in `elif char == '\t': result.append('\\t')` (`B/icecream/icecream.py:294`), so visual alignment cannot be changed by tab.
+- Includes useful multiline injection-shaped test in `test_control_characters_in_multiline_strings()` (`B/tests/test_icecream.py:745`).
+- Better inline docs inside helper (`B/icecream/icecream.py:260-276`).
+
+### Cons (with exact functions/parameters)
+- `B/setup.py:1` adds indentation before shebang, which can break direct script execution semantics.
+- `B/setup.py:106` downgrades `executing` requirement (`>=2.1.0` -> `>=0.8.0`) unrelated to prompt; this is risky and not justified by the bug.
+- Tests are less strict than A in several cases: many checks assert escaped tokens exist but do not always assert raw control chars are absent (`B/tests/test_icecream.py:701-794`).
+- No DEL `\x7f` dedicated edge-case test (A has one).
+
+### PR readiness (Model B)
+- Status: **Not ready**.
+- Blockers:
+  - Revert unrelated `setup.py` dependency and shebang edits.
+  - Tighten tests for raw control-char absence and add DEL case.
+
+### Concrete next-turn fixes for Model B
+1. Revert `B/setup.py:1` shebang indentation and `B/setup.py:106` dependency downgrade.
+2. Add `assertNotIn` checks for raw `\r`, `\b`, `\a`, `\0`, `\f`, `\v` where applicable.
+3. Add `\x7f` DEL test equivalent to A’s `test_delete_character_escaped`.
+4. Keep `_escape_for_display(..., escape_newlines)`; it is a good internal abstraction.
+
+---
+
+## Comparison Table
+
+| Question of which is / has | Answer Given | Justification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| -- | -- | -- |
-| question | which is better  | reasoning / justification |
-| Overall Better Solution | Model A (+2) | Model A has broader allocator changes plus real correctness and performance checks in `test-small-alloc.c`. Model B’s changes are smaller and the “test” is only a benchmark. |
-| Better logic and correctness | Model B (-1) | Model B’s change in `_mi_page_malloc_zero()` is small and targeted, so correctness risk is lower. Model A changes more core paths (`_mi_page_free_collect()`, `mi_page_extend_free()`, `mi_page_retire()`), increasing risk. |
-| Better Naming and Clarity | Model A (+1) | `MI_RETIRE_CYCLES_SMALL` and comments in `A/src/page.c` plus the structured test file are clearer than Model B’s benchmark naming. |
-| Better Organization and Clarity | Model A (+1) | Model A keeps changes concentrated in allocator logic and a test with `CHECK()`; Model B adds a benchmark under tests without clear pass/fail logic. |
-| Better Interface Design | Tie (0) | Neither model changes public interfaces; changes are internal. |
-| Better error handling and robustness | Model A (+1) | Model A’s tests fail on corruption and have explicit floors; Model B has only `abort()` on corruption and no performance checks. |
-| Better comments and documentation | Model A (+1) | Model A adds more explanatory comments in `mi_page_extend_free()` and `mi_page_retire()` and detailed test comments. |
-| Ready for review / merge | Model A (+1) | Both need test portability fixes, but Model A is closer due to real tests. |
+| question | Model A (`+3`) | Model A solves the prompt directly with fewer risky side effects; Model B has unrelated `setup.py` regressions. |
+| Overall Better Solution | Model A (`+3`) | Both fix core issue in `@argumentToString.register(str)`, but Model A avoids risky packaging/dependency edits. |
+| Better logic and correctness | Model A (`+2`) | Both helpers work, but Model A test suite more strongly verifies raw-control absence and includes DEL edge case. |
+| Better Naming and Clarity | Model B (`-1`) | `_escape_for_display(s, escape_newlines)` in `B/icecream/icecream.py:259` is clearer than `_escape_control_characters(s)` for intent and mode control. |
+| Better Organization and Clarity | Model B (`-1`) | B has cleaner separation of newline policy via `escape_newlines`; A is simpler but less structured for future variants. |
+| Better Interface Design | Model B (`-2`) | Internal helper parameter `escape_newlines` gives cleaner control path from `@argumentToString.register(str)` for multiline vs single-line handling. |
+| Better error handling and robustness | Model A (`+2`) | A includes stronger assertions (`assertNotIn` for raw chars) and DEL coverage; B introduces unrelated setup regressions that reduce robustness of the change set. |
+| Better comments and documentation | Model B (`-2`) | B helper has clearer docstring and character-by-character rationale in `B/icecream/icecream.py:260-276`. |
+| Ready for review / merge | Model A (`+3`) | A is near-merge with minor cleanup; B is blocked until `setup.py` regressions are reverted and tests are hardened. |
 
-**Which model is better and why**
-- Model A is better overall because it addresses more of the allocator churn problem with multiple coordinated changes (`mi_find_free_page()`, `mi_page_extend_free()`, `mi_page_retire()`) and adds real correctness and performance checks in `test-small-alloc.c`.
-- Model B is safer in correctness due to smaller scope, but it does not fully “test the improvements” since `test-smallalloc-perf.c` is a benchmark without pass/fail criteria.
+## Final judgment
+**Model A is better overall for this prompt.**
 
-**Test execution**
-- I did not run tests.
+Reason:
+- Both models correctly route through the same default call chain and fix string escaping at the right point (`@argumentToString.register(str)`).
+- Model A has stronger verification of dangerous raw characters and better edge-case test breadth (`\x7f`).
+- Model B has some good design ideas (`escape_newlines`), but unrelated `setup.py` edits create avoidable risk and reduce PR readiness.
+
+## Test execution summary used for this review
+- In `A/`: targeted new tests passed (`6 passed`).
+- In `B/`: targeted new tests passed (`4 passed`).
+- Full `tests/test_icecream.py` run in both A and B had the same 2 unrelated failures (`test_enable_disable`, `test_singledispatch_argument_to_string`) in this environment.

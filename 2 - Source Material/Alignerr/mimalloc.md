@@ -13,6 +13,7 @@
 - [ ] `src/bitmap.c` weak CAS optimization and validation. User issue: at high thread counts, allocator overhead spikes and request latency regresses due to contention
 
 - [x] `src/heap.c` heap reset strategy optimization. User issue: short-lived allocation bursts cause avoidable CPU overhead, reducing throughput in services with frequent heap churn.
+      [[task 15]]
 
 - [ ] `src/page.c` reclaim-path full-queue push behavior tuning. User issue: memory reuse is less efficient under pressure, causing periodic latency spikes and higher tail latencies.
 - [ ] `src/arena.c` choose current NUMA node when unset (`-1`). User issue: default configuration gives inconsistent locality, so identical deployments have different performance profiles.
