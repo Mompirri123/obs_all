@@ -6,16 +6,14 @@
 
 **git rev-parse HEAD:**
 
-**GithubLink:**
+**Github Link:**
 https://github.com/deepseek-ai/smallpond.git
 
 **interface code:**
 cc_agentic_coding
 
-**Checklist:**
-
 ---
-# Saves and Logs - {{title}}
+# Saves and Logs - task xx
 
 ## Turn 1
 

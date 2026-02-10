@@ -59,3 +59,67 @@ summary of what was done:
   - CMakeLists.txt — mimalloc-test-perf executable target added (not a ctest target)
 
 ✳ Combobulating… (16m 4s · ↓ 36.0k tokens)
+
+---
+
+# Turn 2:
+
+Summary of Changes
+
+  Three optimizations in `src/page.c`
+
+  1. _mi_page_retire — original fix (only-page case) (already applied)
+  - When a page is the sole page in its size-class queue and kept alive, promote local_free → free so the next allocation takes the O(1) fast path instead of going through _mi_malloc_generic.
+
+  2. _mi_page_retire — new: small-front case
+  Extended the retirement condition to also keep alive a small-block page that is at the head of a multi-page queue
+  (small_front). Previously, when 2+ pages existed and the front page emptied, it was immediately freed — causing OS-level
+  page churn. Now it's retired with a half-cycle window (MI_RETIRE_CYCLES/2 = 8) and its local_free is promoted to free, so
+  it remains warm and immediately reusable.
+
+  3. _mi_heap_collect_retired — re-promote on each heartbeat
+  When the retirement loop keeps a page alive (decrementing retire_expire), also re-promote local_free → free in case the
+  page was re-used and re-emptied since original retirement. Guarantees the fast allocation path is always available for
+  retired pages.
+
+  New test file: test/test-retire.c (30 pass/fail checks, ctest-registered)
+  Test group: churn-correct-* (8 tests)
+  What it checks: Canary-fill + verify across 500-1000 churn rounds for sizes 8–1024 bytes
+  ────────────────────────────────────────
+  Test group: retire-fastpath-* (3 tests)
+  What it checks: Retirement churn cost ≤ 3× steady-state reference (mode-independent ratio test)
+  ────────────────────────────────────────
+  Test group: multi-page-churn-* (5 tests)
+  What it checks: Correctness for 2-4 page multi-page churn scenarios
+  ────────────────────────────────────────
+  Test group: calloc-zero-after-churn-* (3 tests)
+  What it checks: mi_calloc returns zeroed memory after dirty-and-free cycles
+  ────────────────────────────────────────
+  Test group: single-obj-* (4 tests)
+  What it checks: Single-allocation-per-cycle edge cases including 8192-byte max small object
+  ────────────────────────────────────────
+  Test group: mixed-sizes-churn (1 test)
+  What it checks: 12 interleaved size classes simultaneously
+  ────────────────────────────────────────
+  Test group: usable-size-* (4 tests)
+  What it checks: mi_usable_size(p) >= requested invariant after retirement reuse
+  ────────────────────────────────────────
+  Test group: timing-regression-* (2 tests)
+  What it checks: Multi-page churn must be ≤ 4× per-alloc cost of single-page (detects severe regressions)
+  Updated test/test-perf.c
+
+  Added multi-page churn configs (churn-16b/64b-2-pages, churn-16b/64b-4-pages) that specifically exercise the new
+  small_front retirement path, alongside the original single-page configs and a 1024-byte control.
+
+  Updated CMakeLists.txt
+
+  test-retire is now a first-class ctest target registered alongside test-api, test-api-fill, and test-stress. The
+  mimalloc-test-perf remains a manually-run benchmark.
+
+  Key metrics (MI_STAT=2 stats build)
+
+  - purged: 0 throughout all benchmarks — retired pages stay alive instead of being decommitted to the OS
+  - churn-64b-single-page: 81.6M → 112.5M allocs/s (+38%) vs. no-optimization baseline
+  - Multi-page configs: consistently 100–107M allocs/s with zero page purging
+
+✳ Gallivanting… (11m 5s · ↓ 27.7k tokens)

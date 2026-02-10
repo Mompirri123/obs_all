@@ -9,7 +9,7 @@
 **git rev-parse HEAD:**
 8ff03b636192e25db17eaaff29e6f75acc9a662b
 
-**GithubLink:**
+**Github Link:**
 https://github.com/microsoft/mimalloc
 
 **interface code:**
