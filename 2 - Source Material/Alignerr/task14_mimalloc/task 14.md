@@ -130,12 +130,14 @@ There are still some gaps, currently we only improve for the only page in queue 
 
 #### Model A:
 - Pros:
+	- 
 	
 - Cons:
 
 
 #### Model B:
 - Pros:
+	- Well done tests like `churn_correctness()` and `multi_page_churn_correctness()` together check whether any written memory is damaged after multiple `alloc()`and `free()` cycles / calls. Good separation of tests with benchmarks in  `test-pref.c` and `test-retire` having the pass / fail, retire checking tests. `small_front`
 	
 - Cons:
 
