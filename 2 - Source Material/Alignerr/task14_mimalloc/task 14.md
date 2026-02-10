@@ -96,23 +96,63 @@ There are still some gaps, currently we only improve for the only page in queue 
 
 #### Model A:
 - Pros:
+	- if within the `_mi_page_malloc_zero()` function, if the `page->free` is empty, but if `local_free` is not, this memory blocks are moved and are immediately allocated. This stops a `..._generic()` call for a very commonly seen memory allocation pattern. It Not only covers the 'only page in queue' condition, but also when there are small memory blocks belonging to multiple pages, which means better performance improvements. Adds pass / fail tests as requested. Handles multiple cases within `mi_page_retire()`
 	
 - Cons:
+	- `_mi_page_retire()` has many cases and is more complex and hence harder to maintain. Benchmarks are included in `ctest`which means they are not manual and will run during regular test checks and can make the tests very unnecessarily long and it would be better to split tests into separate files depending on type and exclude benchmarks from running in normal test runs. Does not clean build artefacts (as we are checking for PR ready code, I see this as a con). 
 
 
 #### Model B:
 - Pros:
+	- Well done tests like `churn_correctness()` and `multi_page_churn_correctness()` together check whether any written memory is damaged after multiple `alloc()`and `free()` cycles / calls. Good separation of tests with benchmarks in  `test-pref.c` and `test-retire` having the pass / fail, retire checking tests. `small_front` and `only_page` conditions both use "shorter retirement window for the non-singleton case so we don't hold and excess committed memory when the multi-page queue shrinks naturally" as said in the `mi_page_block_size()`  comments. `_mi_page_retire()` covers not only the 'only page in queue' condition but also multi page case (small group), so more performance improvements. Changes are simpler to understand. Explains the implementation well in comments.`small_front` explicitly handles the case where there are small memory blocks case.
 	
 - Cons:
+	- If there are blocks only in `local_free`, then allocator still uses the slower `..generic`, which could be improved using pre existing functions if allowed to. Works only when page(s) is at the front of the queue. Mostly timing based tests and needs more explicit checks. Talks about having double free checks but there is none. also `test-retire.c`  could be more rigid and check for more edge cases. Does not clean build artefacts (as we are checking for PR ready code, I see this as a con)
 
 #### Justification for best overall
+  - I think Model A is slightly better than B. This is because Model A has better optimisation for the short term small alloc/free blocks which is our main requirement. That said Model B outperforms model B in terms of structure and simplicity. It has better organisation of tests with different types of tests separated and also avoids running the benchmark tests with the normal test sequence. that Model A's `_mi_page_malloc_zero()` and `_mi_page_retire()`are well designed and perform better than model A optimisations, but the tests are not separated and the benchmarks tests run on a normal test run which makes the tests very slow. So, Model A has better functionality and Model B has better modularisation , tests and code structure. The best would be to have a combination of Model A's performance optimisations combined with Model B's better tests and organisation. So in short, Model A's better functionality makes it slightly better than Model B
 
 ---
 
 ## Turn 3
 
-### Turn 3 Prompt:
+#### Model A:
+- Pros:
+	- if within the `_mi_page_malloc_zero()` function, if the `page->free` is empty, but if `local_free` is not, this memory blocks are moved and are immediately allocated. This stops a `..._generic()` call for a very commonly seen memory allocation pattern. It Not only covers the 'only page in queue' condition, but also when there are small memory blocks belonging to multiple pages, which means better performance improvements. Adds pass / fail tests as requested. Handles multiple cases within `mi_page_retire()`
+	
+- Cons:
+	- `_mi_page_retire()` has many cases and is more complex and hence harder to maintain. Benchmarks are included in `ctest`which means they are not manual and will run during regular test checks and can make the tests very unnecessarily long and it would be better to split tests into separate files depending on type and exclude benchmarks from running in normal test runs. Does not clean build artefacts (as we are checking for PR ready code, I see this as a con). 
 
+overall:
+- `_mi_page_retire()` has many cases and is more complex and hence harder to maintain. Benchmarks are included in `ctest`which means they are not manual and will run during regular test checks and can make the tests very unnecessarily long and it would be better to split tests into separate files depending on type and exclude benchmarks from running in normal test runs. Does not clean build artefacts (as we are checking for PR ready code, I see this as a con). 
+
+## Problems to fix:
+
+-  Split tests by purpose
+    - Keep pass/fail checks in [test-retire.c](https://file+.vscode-resource.vscode-cdn.net/Users/home/.vscode/extensions/openai.chatgpt-0.4.71-darwin-arm64/webview/# "test-retire.c").
+    - Keep speed numbers in [test-perf.c](https://file+.vscode-resource.vscode-cdn.net/Users/home/.vscode/extensions/openai.chatgpt-0.4.71-darwin-arm64/webview/# "test-perf.c") 
+    - Do not run test-perf in normal ctest.
+    - 
+- Modularise _mi_page_retire()
+    - Break big logic into small helper functions.
+    - Keep same behaviour, but make each condition easy to read.
+    - 
+-  Add direct tests for new logic
+    - Add a test for _mi_page_malloc_zero() case: page->free == NULL and page->local_free != NULL.
+    - Add a test for small multi-page retire path in _mi_page_retire().
+- Add safety checks
+    - Add asserts after list moves (local_free -> free) to confirm correct state
+      
+- Remove build artefacts and temp files.
+	
+- Keep only source, test, and CMake changes
+	
+- Yo how many build files !!!
+
+### Turn 3 Prompt:
+ 
+ - The implementation is on track but has some issues, the code should be modularised better and needs to be easy to follow. benchmark tests should be manual and shouldnt run within ctest. Needs explicit tests for newly added functions, also lacks indepth edgecase handling and tests
+ 
 ### Turn 3 Eval Table:
 
 | Question of which is / has           | Answer Given | Justoification Why? |
@@ -133,12 +173,15 @@ There are still some gaps, currently we only improve for the only page in queue 
 	- 
 	
 - Cons:
+	- 
 
 
 #### Model B:
 - Pros:
-	- Well done tests like `churn_correctness()` and `multi_page_churn_correctness()` together check whether any written memory is damaged after multiple `alloc()`and `free()` cycles / calls. Good separation of tests with benchmarks in  `test-pref.c` and `test-retire` having the pass / fail, retire checking tests. `small_front`
+	- 
 	
 - Cons:
-
+	- 
+	
 #### Justification for best overall
+

@@ -1,232 +1,241 @@
-# Review Update: Model A vs Model B (Prompt 1 + Prompt 2)
+# Review Update: Model A vs Model B (Prompt 1 + Prompt 2 + Prompt 3)
 
-Prompt 1:
-`Fix the following issue where, many small memory allocations and frees which could be avoided by the allocator happen in a short time and are resulting in performance issues. Optimise the allocator and test the improvements`
-
-Prompt 2:
-`There are still some gaps, currently we only improve for the only page in queue condition, add improvements for small-blocks of pages etc.;. Add tests that check explicitly for pass / fail while benchmarks check for numerical improvements`
+Prompts reviewed:
+1. `Fix the following issue where, many small memory allocations and frees which could be avoided by the allocator happen in a short time and are resulting in performance issues. Optimise the allocator and test the improvements`
+2. `There are still some gaps, currently we only improve for the only page in queue condition, add improvements for small-blocks of pages etc.;. Add tests that check explicitly for pass / fail while benchmarks check for numerical improvements`
+3. `The implementation is on track but has some issues, the code should be modularised better and needs to be easy to follow. benchmark tests should be manual and shouldnt run within ctest. Needs explicit tests for newly added functions, also lacks indepth edgecase handling and tests`
 
 Scoring scale used in table:
 - `+4` = Model A fully wins
 - `-4` = Model B fully wins
 
-Backward compatibility rule used in this review:
-- I gave credit when compatibility-safe choices were made.
-- I did not subtract points only because backward compatibility may change.
+Note for this pass:
+- This is a read-only review (no builds/tests executed here), based on current source files.
+- Backward compatibility was not used as a penalty.
 
 ## Model A
 
-### Full flow (how the optimization is applied)
-There is no new public option flag. Behavior is automatic.
+### Full flow of how the optimization works
+No new public runtime option was added. Behavior is automatic in allocator internals.
 
-1. Allocation starts in `mi_malloc(size_t size)` in `A/src/alloc.c:214`.
-2. `mi_malloc()` calls `mi_heap_malloc()` in `A/src/alloc.c:210`, then small allocation fast-path reaches `_mi_page_malloc_zero(...)` in `A/src/alloc.c:31`.
-3. Model A changed `_mi_page_malloc_zero(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero, size_t* usable)`:
-- Trigger: `page->free == NULL`.
-- Action: it checks `page->local_free`; if not null, it moves `page->local_free` to `page->free` (`A/src/alloc.c:42-47`).
-- Impact: next block is popped from `page->free` in the same function call, so allocator avoids fallback to `_mi_malloc_generic(...)` in this churn case.
-4. Free starts in `mi_free(void* p)` and goes to `mi_free_block_local(...)` in `A/src/free.c:31`.
-5. `mi_free_block_local(...)` pushes block to `page->local_free` (`A/src/free.c:45-46`).
-6. When `--page->used == 0`, `mi_free_block_local(...)` calls `_mi_page_retire(page)` (`A/src/free.c:47-48`).
-7. Model A changed `_mi_page_retire(mi_page_t* page)` in `A/src/page.c:462`:
-- Original retain case is still present: if page is the only page in this size queue.
-- Added small-block multi-page case: when `bsize <= MI_SMALL_OBJ_SIZE_MAX`, page can be retained briefly (`A/src/page.c:498-521`).
-- It promotes `page->local_free -> page->free` in retire path (`A/src/page.c:506-510`).
-- It moves page to queue front with `mi_page_queue_move_to_front(heap, pq, page)` (`A/src/page.c:513`) so `_mi_heap_collect_retired(...)` can manage expiry from queue head.
+1. User call chain starts at `mi_malloc(size_t size)` in `A/src/alloc.c:214`.
+2. It goes to `mi_heap_malloc(...)` in `A/src/alloc.c:210`, then to `_mi_page_malloc_zero(...)` in `A/src/alloc.c:52` for fast-page allocation.
+3. In `_mi_page_malloc_zero(...)`, when `page->free == NULL`, Model A calls `_mi_page_local_free_to_free(page)` (`A/src/alloc.c:60`).
+- Trigger: fast free list is empty.
+- Action: helper moves `page->local_free -> page->free` (`A/src/alloc.c:38-47`).
+- Impact: same function can continue with fast pop instead of immediate `_mi_malloc_generic(...)` fallback.
+4. Free call chain starts in `mi_free(...)`, then `mi_free_block_local(...)` (`A/src/free.c:31`).
+5. `mi_free_block_local(...)` pushes freed block to `page->local_free` (`A/src/free.c:45-46`), and when `--page->used == 0`, calls `_mi_page_retire(page)` (`A/src/free.c:47-48`).
+6. In `_mi_page_retire(...)` (`A/src/page.c:500`), Model A splits retirement handling:
+- Sole-page case uses `_mi_page_retire_set_expire(...)` (`A/src/page.c:515-523`).
+- Small-block multi-page case (`bsize <= MI_SMALL_OBJ_SIZE_MAX`) may retain one page briefly (`A/src/page.c:526-543`) and move it to queue front.
+7. `_mi_page_retire_set_expire(...)` (`A/src/page.c:483`) sets `page->retire_expire`, promotes `local_free -> free` using `_mi_page_retire_promote_free(...)` (`A/src/page.c:469`), and updates retired-range tracking.
 
-In simple words:
-- In A, churn can be faster in two places: allocation-time reclaim (`_mi_page_malloc_zero`) and retirement-time keep/reuse (`_mi_page_retire`).
+Simple summary:
+- A optimizes both allocation-time reclaim (`_mi_page_local_free_to_free`) and retirement-time retain/reuse (`_mi_page_retire_set_expire`).
 
 ### New or modified functions/parameters
-Modified functions:
-- `_mi_page_malloc_zero(...)` in `A/src/alloc.c:31`
-- `_mi_page_retire(mi_page_t* page)` in `A/src/page.c:462`
-- CMake test wiring in `A/CMakeLists.txt:742-753`
+Modified/added in allocator path:
+- `A/src/alloc.c`: `_mi_page_local_free_to_free(mi_page_t* page)` (new helper)
+- `A/src/alloc.c`: `_mi_page_malloc_zero(...)` (modified call path)
+- `A/src/page.c`: `_mi_page_retire_promote_free(mi_page_t* page)` (new helper)
+- `A/src/page.c`: `_mi_page_retire_set_expire(...)` (new helper)
+- `A/src/page.c`: `_mi_page_retire(...)` (modified logic)
 
-Added file:
-- `A/test/test-perf.c`
+Modified/added in tests/build:
+- `A/test/test-churn.c` (new pass/fail file)
+- `A/test/test-perf.c` (manual benchmark)
+- `A/CMakeLists.txt:742-765` adds `mimalloc-test-churn` as ctest and keeps `mimalloc-test-perf` manual only.
 
-Important modified parameters/fields:
-- `page->free`: allocation pop-list
-- `page->local_free`: newly freed local blocks list
-- `page->retire_expire`: retention countdown for retired pages
-- `bsize` (from `mi_page_block_size(page)`): used to classify small-block behavior
-- `pq->first` / `pq->last`: queue position checks
+Key fields/parameters used in behavior:
+- `page->free`
+- `page->local_free`
+- `page->retire_expire`
+- `pq->first`, `pq->last`
+- `bsize` from `mi_page_block_size(page)`
 
-### Tests added and what each test proves
-File: `A/test/test-perf.c` (pass/fail + benchmarks in one executable)
+### Tests added and what each proves
+Pass/fail tests file: `A/test/test-churn.c`
 
-Pass/fail tests (via `CHECK(...)` / `CHECK_BODY(...)` from `A/test/testhelper.h:33-47`):
-1. `test_churn_page_reuse()` (`A/test/test-perf.c:68`)
-- Proves free-all then alloc-all can reuse same page region.
-- Edge case: checks 64KiB page alignment identity (`page_a == page_b`).
+Explicit tests for newly added code paths:
+1. `_mi_page_local_free_to_free` path tests:
+- `test_local_free_to_free_basic()` (`A/test/test-churn.c:95`)
+- `test_local_free_to_free_free_is_zero()` (`A/test/test-churn.c:126`)
+- `test_local_free_to_free_multiple_cycles()` (`A/test/test-churn.c:153`)
+- `test_local_free_to_free_empty_page()` (`A/test/test-churn.c:182`)
+What these prove: local list promotion works, calloc behavior stays correct, repeated cycles do not lose blocks, and empty case still falls back safely.
 
-2. `test_churn_memory_integrity()` (`A/test/test-perf.c:92`)
-- Proves no corruption after churn cycles by writing then verifying byte values.
+2. `_mi_page_retire_promote_free` (sole-page retire) tests:
+- `test_retire_promote_page_reuse()` (`A/test/test-churn.c:209`)
+- `test_retire_promote_calloc_zero()` (`A/test/test-churn.c:241`)
+- `test_retire_promote_memory_integrity()` (`A/test/test-churn.c:267`)
+What these prove: same-page reuse after full-free, zeroing correctness, no corruption during reused-page churn.
 
-3. `test_churn_calloc_zero()` (`A/test/test-perf.c:125`)
-- Proves `mi_calloc()` still returns zeroed memory after churn and reuse.
+3. `_mi_page_retire_set_expire` / multi-page retirement tests:
+- `test_multi_page_retire_reuse()` (`A/test/test-churn.c:303`)
+- `test_multi_page_retire_guard()` (`A/test/test-churn.c:351`)
+- `test_multi_page_retire_integrity()` (`A/test/test-churn.c:379`)
+What these prove: multi-page reuse works, “one retired page per queue” guard behavior, and data integrity under multi-page churn.
 
-4. `test_single_object_churn()` (`A/test/test-perf.c:156`)
-- Proves extreme alloc/free one-by-one loop remains correct.
+Edge-case depth (strong in A):
+- size boundaries: 1 byte (`A/test/test-churn.c:410`), 1024 (`A/test/test-churn.c:431`), 8192 (`A/test/test-churn.c:451`), 8193 (`A/test/test-churn.c:471`)
+- `mi_malloc(0)` (`A/test/test-churn.c:489`)
+- aligned churn (`A/test/test-churn.c:505`)
+- realloc churn (`A/test/test-churn.c:525`)
+- interleaved sizes (`A/test/test-churn.c:557`)
+- private heap (`A/test/test-churn.c:581`)
+- forced collect during churn (`A/test/test-churn.c:606`)
+- usable-size consistency (`A/test/test-churn.c:648`)
+- duplicate block check (`A/test/test-churn.c:668`)
 
-5. `test_multi_size_churn()` (`A/test/test-perf.c:178`)
-- Proves correctness across size classes in repeated churn.
+Benchmark file: `A/test/test-perf.c` (manual, numerical only).
 
-6. `test_multi_page_churn()` (`A/test/test-perf.c:200`)
-- Proves correctness when small allocations span multiple pages.
+### Pros (Model A)
+- Strong modularization for prompt-3 in allocator internals:
+  - alloc helper `_mi_page_local_free_to_free(...)` in `A/src/alloc.c:38`
+  - retire helpers `_mi_page_retire_promote_free(...)` and `_mi_page_retire_set_expire(...)` in `A/src/page.c:469` and `A/src/page.c:483`.
+- Clear optimization call chain:
+  - `mi_free_block_local(...)` fills `page->local_free` (`A/src/free.c:45-46`),
+  - next `mi_malloc(...)` can reclaim via `_mi_page_local_free_to_free(...)` before generic path.
+- Very deep edge-case pass/fail coverage in `A/test/test-churn.c`.
+- Benchmark is manual, not ctest (`A/CMakeLists.txt:754-765`) which matches prompt-3.
 
-7. `test_churn_realloc()` (`A/test/test-perf.c:229`)
-- Proves reallocation path preserves old content during churn.
-
-Numerical benchmark section:
-- `bench_churn(...)` (`A/test/test-perf.c:268`) and `run_benchmarks()` (`A/test/test-perf.c:309`) print throughput.
-
-CMake integration:
-- `mimalloc-test-perf` target + `add_test(NAME test-perf ...)` in `A/CMakeLists.txt:742-753`.
-
-### Pros (with exact functions/parameters)
-- In `_mi_page_malloc_zero(...)`, when `page->free` is empty but `page->local_free` has blocks, A moves blocks and allocates immediately in same call (`A/src/alloc.c:39-50`).
-  This directly removes one slow fallback call to `_mi_malloc_generic(...)` for common churn patterns.
-- In `_mi_page_retire(...)`, A covers not only “only page in queue” but also a small-block multi-page case (`A/src/page.c:498-521`).
-  This means churn optimization is not limited to single-page queues.
-- A adds pass/fail correctness checks and numeric benchmark output in one file (`A/test/test-perf.c`), so both correctness and speed are tested.
-
-### Cons (with exact functions/parameters)
-- `_mi_page_retire(...)` has more branch paths and queue mutation (`mi_page_queue_move_to_front`) (`A/src/page.c:513`), so maintenance and reasoning become harder.
-- `test-perf` is registered in `ctest` (`A/CMakeLists.txt:752`) although it also runs large benchmarks. This can make regular CI test duration noisy.
-- A has no separate short deterministic retire-only test file; retire correctness is mixed with benchmark workload in `A/test/test-perf.c`.
+### Cons (Model A)
+- `_mi_page_retire(...)` still has many branches (`A/src/page.c:500-547`) and queue-front movement (`A/src/page.c:540`), so junior maintainers may need time to understand all paths.
+- `A/test/test-churn.c` is very large; maintainability of tests can be difficult without splitting by theme/file.
+- Build artifacts are present in working tree (PR hygiene issue, though not allocator logic issue).
 
 ### PR readiness (Model A)
-Status: **Needs one more iteration before merge**.
+Status: **Almost ready, but one cleanup iteration recommended**.
 
-Reason:
-- Runtime optimization is strong and prompt-aligned.
-- Test packaging should be split so CI correctness lane is deterministic and fast.
-
-### Concrete next-turn fixes for Model A
-1. Split tests into:
-- `test-retire.c` for pass/fail deterministic checks.
-- `test-perf.c` for numeric performance only.
-2. Keep allocation-time reclaim in `_mi_page_malloc_zero(...)`, but add explicit invariant checks around `page->free` and `page->local_free` transitions.
-3. Add targeted tests for the small-block multi-page retire branch in `_mi_page_retire(...)`.
+Concrete next-turn fixes for A:
+1. Split `A/test/test-churn.c` into smaller files (`test-churn-promote.c`, `test-churn-retire.c`, `test-churn-edges.c`) to keep reviewer load low.
+2. Add short comments at each early return in `_mi_page_retire(...)` to state exactly why page is retained/freed.
+3. Remove build artifacts from PR diff.
 
 ---
 
 ## Model B
 
-### Full flow (how the optimization is applied)
-There is no new public option flag. Behavior is automatic.
+### Full flow of how the optimization works
+No new public runtime option was added. Behavior is automatic.
 
-1. Free starts in `mi_free()` and reaches `mi_free_block_local(...)` in `B/src/free.c:31`.
-2. `mi_free_block_local(...)` pushes freed block to `page->local_free` (`B/src/free.c:45-46`).
-3. When page becomes empty (`--page->used == 0`), it calls `_mi_page_retire(page)` (`B/src/free.c:47-48`).
-4. Model B changed `_mi_page_retire(mi_page_t* page)` in `B/src/page.c:462` with two conditions:
-- `only_page`: this page is both `pq->first` and `pq->last`.
-- `small_front`: this is a small-object page (`bsize <= MI_SMALL_OBJ_SIZE_MAX`) and it is queue head (`pq->first == page`) even when queue has other pages.
-5. If `only_page || small_front` is true, B retains page for some cycles by setting `page->retire_expire` (`B/src/page.c:489-490`) and promotes `page->local_free -> page->free` (`B/src/page.c:493-497`).
-6. Why this matters:
-- Next `mi_malloc()` for same size class can hit the same page and pop directly from `page->free`.
-- This avoids freeing and re-allocating warm page metadata too often during short bursts.
-7. Model B also changed `_mi_heap_collect_retired(...)` in `B/src/page.c:514`:
-- While page is still retired and alive, if it has blocks in `page->local_free` but `page->free` is empty, B re-promotes local list to free list (`B/src/page.c:527-533`).
-- So repeated retire/collect cycles still keep next allocation on fast list-pop path.
-8. Allocation fast path in `B/src/alloc.c:_mi_page_malloc_zero(...)` is unchanged (`B/src/alloc.c:37-40`):
-- If `page->free == NULL`, it still directly falls back to `_mi_malloc_generic(...)`.
+1. Allocation call chain starts in `mi_malloc(size_t size)` (`B/src/alloc.c:208`) and reaches `_mi_page_malloc_zero(...)` (`B/src/alloc.c:31`).
+2. In `_mi_page_malloc_zero(...)`, if `page->free == NULL`, B calls shared helper `_mi_page_promote_local_free(page)` from `B/include/mimalloc/internal.h:525` (`B/src/alloc.c:40`).
+- Trigger: free list empty on fast path.
+- Action: helper moves `page->local_free -> page->free` only when safe (`free==NULL && local_free!=NULL`).
+- Impact: next block pop continues fast path; fallback to `_mi_malloc_generic(...)` only if still empty.
+3. Free path uses `mi_free_block_local(...)` (`B/src/free.c:31`) same as A:
+- freed block goes to `page->local_free` (`B/src/free.c:45-46`),
+- `used==0` triggers `_mi_page_retire(page)` (`B/src/free.c:47-48`).
+4. In `_mi_page_retire(...)` (`B/src/page.c:492`), B modularizes retirement logic:
+- helper `mi_page_retire_track(...)` tracks retired range (`B/src/page.c:463`),
+- helper `mi_page_retire_small_in_queue(...)` handles small multi-page retain branch (`B/src/page.c:477`).
+5. Small multi-page helper behavior:
+- Trigger: `bsize <= MI_SMALL_OBJ_SIZE_MAX` and no retired page already at queue front (`B/src/page.c:478-480`).
+- Action: set `retire_expire = MI_RETIRE_CYCLES/4`, promote local free, move page to queue front, track retire range (`B/src/page.c:482-488`).
+- Impact: reduces free/re-acquire churn while bounding retained-page count.
 
-In simple words:
-- B improves retirement behavior and queue-head small-page reuse, but does not add allocation-time local reclaim logic.
+Simple summary:
+- B uses shared promotion helper across alloc and retire paths, and isolates small-page retire logic into dedicated helper function.
 
 ### New or modified functions/parameters
-Modified functions:
-- `_mi_page_retire(mi_page_t* page)` in `B/src/page.c:462`
-- `_mi_heap_collect_retired(mi_heap_t* heap, bool force)` in `B/src/page.c:514`
-- CMake wiring in `B/CMakeLists.txt:727-743`
+Modified/added in allocator path:
+- `B/include/mimalloc/internal.h`: `_mi_page_promote_local_free(mi_page_t* page)` (new shared helper)
+- `B/src/alloc.c`: `_mi_page_malloc_zero(...)` uses shared helper
+- `B/src/page.c`: `mi_page_retire_track(...)` (new helper)
+- `B/src/page.c`: `mi_page_retire_small_in_queue(...)` (new helper)
+- `B/src/page.c`: `_mi_page_retire(...)` simplified around helpers
 
-Added files:
-- `B/test/test-retire.c` (pass/fail retire-focused test suite)
-- `B/test/test-perf.c` (benchmark)
+Modified/added in tests/build:
+- `B/test/test-churn.c` (pass/fail)
+- `B/test/test-perf.c` (manual benchmark)
+- `B/CMakeLists.txt:727-752` adds churn into test loop; perf manual only.
 
-Important modified parameters/fields:
-- `only_page`: singleton queue condition
-- `small_front`: small-block queue-head condition
-- `page->retire_expire`: retained-page lifetime
-- `page->free` / `page->local_free`: reusable block lists
-- `pq->first` / `pq->last`: queue-position checks
+Key fields/parameters used:
+- `page->free`
+- `page->local_free`
+- `page->retire_expire`
+- `pq->first`, `pq->last`
+- `bsize`
 
 ### Tests added and what each test proves
-1. Pass/fail tests: `B/test/test-retire.c`
-- `churn_correctness(...)` (`B/test/test-retire.c:67`) verifies data canary integrity for repeated churn by size.
-- `retirement_fast_path(...)` (`B/test/test-retire.c:100`) checks churn path cost relative to steady-state path with ratio limit.
-- `multi_page_churn_correctness(...)` (`B/test/test-retire.c:161`) verifies correctness in 2-page and 4-page churn.
-- `calloc_zeroinit_after_churn(...)` (`B/test/test-retire.c:190`) verifies zero-init after reuse.
-- `single_object_churn(...)` (`B/test/test-retire.c:221`) verifies single-object edge pattern.
-- `mixed_size_churn(...)` (`B/test/test-retire.c:240`) verifies interleaved size-class churn correctness.
-- `usable_size_after_churn(...)` (`B/test/test-retire.c:272`) verifies `mi_usable_size()` invariant.
-- `timing_regression_multi_page(...)` (`B/test/test-retire.c:297`) checks multi-page per-alloc slowdown bound.
+Pass/fail file: `B/test/test-churn.c`
 
-CMake integration:
-- Adds `retire` into standard `ctest` loop (`B/CMakeLists.txt:727-740`).
+Explicit tests for newly added functions/paths:
+1. `_mi_page_promote_local_free` path:
+- `test_promote_basic()` (`B/test/test-churn.c:53`)
+- `test_promote_sizes()` (`B/test/test-churn.c:70`)
+- `test_promote_noop_when_free_nonempty()` (`B/test/test-churn.c:88`)
+What these prove: promotion triggers in churn, works across sizes, and behaves as no-op when `page->free` is already non-empty.
 
-2. Numerical benchmark: `B/test/test-perf.c`
-- `bench_churn(...)` (`B/test/test-perf.c:45`) + config matrix (`B/test/test-perf.c:96-103`) output throughput numbers.
-- Kept manual by design (not in `ctest`) (`B/CMakeLists.txt:742-752`).
+2. sole-page retire path:
+- `test_retire_sole_page_reuse()` (`B/test/test-churn.c:111`)
+- `test_retire_sole_repeated()` (`B/test/test-churn.c:128`)
+What these prove: repeated reuse and stability when page is sole page in queue.
 
-### Pros (with exact functions/parameters)
-- Prompt-2 small-block gap is concretely addressed in `_mi_page_retire(...)` with `small_front` (`B/src/page.c:484`).
-  Explanation: when a just-emptied small page is at queue head, B retains it (`page->retire_expire`) and keeps reusable blocks in `page->free`, so next same-size allocation can reuse hot page data instead of cold page reacquire.
-- `_mi_heap_collect_retired(...)` re-promotes `local_free -> free` (`B/src/page.c:527-533`).
-  Explanation: even after retire-cycle housekeeping, page stays ready for immediate list-pop allocation path.
-- B separates correctness tests (`test-retire.c`) and benchmarks (`test-perf.c`), which is cleaner for development flow and CI behavior.
-- B keeps benchmark manual in CMake, so regular `ctest` remains focused on deterministic pass/fail checks.
+3. small multi-page retire path:
+- `test_retire_multi_page_integrity()` (`B/test/test-churn.c:155`)
+- `test_retire_multi_size()` (`B/test/test-churn.c:183`)
+What these prove: multi-page churn correctness and multi-size-class behavior.
 
-### Cons (with exact functions/parameters)
-- `_mi_page_malloc_zero(...)` in `B/src/alloc.c:37-40` still does not reclaim `page->local_free` inline.
-  Effect: if page has reusable blocks only in `local_free`, this function still jumps to `_mi_malloc_generic(...)` instead of using same-call local reclaim.
-- `small_front` path is narrower than a general multi-page optimization because it needs `pq->first == page` (`B/src/page.c:484`).
-  Effect: pages not at head do not get this retire retention behavior.
-- Header comment in `B/test/test-retire.c:17` mentions double-free/used-count invariants, but explicit double-free test case is not present.
-- Some pass/fail decisions are timing-ratio based (`retirement_fast_path`, `timing_regression_multi_page`), which can vary by machine/load.
+Edge cases covered in B:
+- zero-size (`B/test/test-churn.c:209`)
+- single object churn (`B/test/test-churn.c:220`)
+- extension boundary (`B/test/test-churn.c:234`)
+- calloc after dirty (`B/test/test-churn.c:251`)
+- aligned churn (`B/test/test-churn.c:279`)
+- partial free (`B/test/test-churn.c:299`)
+- realloc churn (`B/test/test-churn.c:327`)
+- fresh heap (`B/test/test-churn.c:355`)
+- large objects (`B/test/test-churn.c:379`)
+- interleaved (`B/test/test-churn.c:403`)
+
+Benchmark file: `B/test/test-perf.c` (manual numerical benchmark).
+
+### Pros (Model B)
+- Better modular reuse than A for promotion helper:
+  - `_mi_page_promote_local_free(...)` is in shared internal header (`B/include/mimalloc/internal.h:525`), used by alloc and retire logic.
+- `_mi_page_retire(...)` is easier to follow due to clear helper extraction (`mi_page_retire_track`, `mi_page_retire_small_in_queue`) in `B/src/page.c:463` and `B/src/page.c:477`.
+- Explicit pass/fail tests for new helper/paths are present in `B/test/test-churn.c` with simpler structure than A.
+- Benchmark is manual only in CMake, satisfying prompt-3 (`B/CMakeLists.txt:742-752`).
+
+### Cons (Model B)
+- Edge-case depth is good but less complete than A:
+  - missing explicit boundary checks like 8192/8193 split and duplicate-block uniqueness test present in A.
+- `B/test/test-perf.c` has fewer benchmark scenarios than A (A includes single-object and partial-free benchmark configs).
+- As with A, build artifacts are present in working tree (PR hygiene issue).
 
 ### PR readiness (Model B)
-Status: **Needs one more iteration before merge, but test structure is cleaner**.
+Status: **Almost ready, also needs one cleanup iteration**.
 
-Reason:
-- Runtime behavior is improved in retire path and small-front case.
-- Test organization is strong.
-- Missing alloc-time reclaim path and minor test-claim alignment.
-
-### Concrete next-turn fixes for Model B
-1. Add local reclaim to allocation fast path in `_mi_page_malloc_zero(...)`:
-- when `page->free == NULL` and `page->local_free != NULL`, move list and allocate in same call.
-2. Validate/extend `small_front` coverage:
-- either widen condition or provide data that queue-head-only policy is enough.
-3. Add explicit structural tests (not only timing thresholds) for retire-list behavior.
-4. Align `test-retire.c` intro claims with actually implemented checks.
+Concrete next-turn fixes for B:
+1. Add boundary-focused tests for `MI_SMALL_OBJ_SIZE_MAX` and `MI_SMALL_OBJ_SIZE_MAX+1`.
+2. Add duplicate-block uniqueness test after churn promotion path.
+3. Expand benchmark matrix with single-object and partial-free patterns.
+4. Remove build artifacts from PR diff.
 
 ---
 
 ## Comparison Table
 
-| Question of which is / has | Answer Given | Justification Why? |
+| **Question**                         | **Which is better** | **Reasoning / Justification** |
 | ------------------------------------ | ------------------- | ----------------------------- |
-| Overall Better Solution | Model A (`+1`) | A optimizes two runtime moments: allocation-time reclaim in `_mi_page_malloc_zero(...)` and retirement-time retention in `_mi_page_retire(...)`. B optimizes mostly retirement-time behavior. |
-| Better logic and correctness | Model A (`+1`) | In A, if `page->free` is empty but `page->local_free` has blocks, same function call can still allocate (`A/src/alloc.c:39-50`) without generic fallback. That is direct churn-path correctness/perf logic. |
-| Better Naming and Clarity | Model B (`-1`) | B uses explicit names `only_page` and `small_front` in `B/src/page.c`, making trigger conditions easier for junior readers to map to queue state. |
-| Better Organization and Clarity | Model B (`-2`) | B separates deterministic pass/fail checks (`test-retire.c`) from numeric benchmark (`test-perf.c`), so readers and CI can reason about correctness and performance independently. |
-| Better Interface Design | Model B (`-1`) | Neither changes public API, but B’s CMake integration is cleaner: `test-retire` in `ctest`, `test-perf` manual. That gives clearer user/developer workflow. |
-| Better error handling and robustness | Model B (`-1`) | B’s default test lane avoids running heavy benchmark loops as regular test cases, reducing flaky CI behavior while still keeping correctness checks active. |
-| Better comments and documentation | Model B (`-1`) | B’s `_mi_page_retire(...)` comments explain “why this branch exists” and “memory hold-time tradeoff” directly near logic, which helps when reading without prior context. |
-| Ready for review / merge | Model B (`-1`) | B is closer: cleaner test packaging and focused retire-path changes. A still needs test split for stable PR checks. |
+| Overall Better Solution              | Model A (`+1`)      | A and B both satisfy prompt-3 core asks, but A provides deeper edge-case validation around the same optimization paths, so confidence is slightly higher for churn corner cases. |
+| Better logic and correctness         | Model A (`+1`)      | Runtime logic is comparable, but A adds more guard-oriented and boundary-oriented correctness tests tied to its new helpers (`_mi_page_local_free_to_free`, `_mi_page_retire_set_expire`). |
+| Better Naming and Clarity            | Model B (`-1`)      | B’s helper names and separation (`_mi_page_promote_local_free`, `mi_page_retire_track`, `mi_page_retire_small_in_queue`) are easier for a junior reader to map to behavior. |
+| Better Organization and Clarity      | Model B (`-1`)      | B keeps allocator code paths cleaner by extracting shared helper into `internal.h` and reducing repeated list-promotion code in source files. |
+| Better Interface Design              | Model B (`-1`)      | No public API changes in either model, but B’s internal interface reuse (`_mi_page_promote_local_free`) is cleaner and reduces duplicate logic. |
+| Better error handling and robustness | Model A (`+2`)      | A has wider pass/fail edge coverage (boundary sizes, forced collect, usable-size consistency, duplicate-block check), so bug-detection net is stronger. |
+| Better comments and documentation    | Model A (`+1`)      | A’s `test-churn.c` explains each new path and test target in more detail, helping reviewer understanding without opening multiple files. |
+| Ready for review / merge             | Tie (`0`)           | Both are close and both now keep benchmarks manual. Each still needs final polish (mainly PR hygiene + a few targeted test additions). |
 
 ## Final judgment
-Model A is slightly stronger on raw optimization coverage for short-term small alloc/free churn.
-Model B is stronger on test structure and readability for maintainers.
+Model A is slightly better overall for this prompt sequence because it validates more edge behaviors after adding churn optimizations.
 
-If choosing one base branch:
-- Choose **Model A** if immediate runtime optimization breadth is main goal.
-- Choose **Model B** if maintainability and cleaner CI test strategy are main goal.
+Model B is better in code modularization style and readability, and is also close to merge quality.
 
-Best combined direction:
-- Keep A’s allocation-time local reclaim in `_mi_page_malloc_zero(...)`.
-- Keep B’s split test strategy (`test-retire.c` for pass/fail, `test-perf.c` for numbers).
+Best practical merge strategy:
+1. Keep B’s modular helper structure in allocator internals.
+2. Keep A’s deeper edge-case test set and bring missing edge tests into B-style structure.
+3. Ensure only source/test/CMake files are in final PR (no build artifacts).
