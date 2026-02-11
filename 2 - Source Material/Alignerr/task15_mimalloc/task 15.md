@@ -84,6 +84,7 @@ There are still some issues to fix, the `mi_out_std...()` functions still use `f
 
 #### Model A:
 - Pros:
+	- Correctly splits with conditions `out == stdout`, `out == stderr`, and `out == NULL` within `_mi_fputs()`. `mi_out_stderr()` and `mi_out_stdout` now call `_mi_prim_out_stderr(msg)` and `_mi_prim_out_stdout(msg)`respectively instead of `fputs(..)`. 
 	
 - Cons:
 

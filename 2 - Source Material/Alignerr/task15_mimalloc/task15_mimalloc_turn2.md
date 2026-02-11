@@ -4,6 +4,8 @@
 - Prompt 1 target: correct wrong fd routing so messages go to intended fd and are not silently lost.
 - Prompt 2 target: move `mi_out_std...()` off direct `fputs(..)` usage path and add proper tests for `mi_vfprintf()` + fd routing behavior.
 - I reviewed current code under `A/` and `B/` only (no old memory assumptions).
+- Include/header/link safety check: no `fatal error`, `implicit declaration`, or linker errors in configure/build/test logs for either model.
+- Evaluation note: commit/staging state is intentionally excluded from quality scoring (as requested).
 - Validation run:
   - Model A: build OK, tests 4/4 pass.
   - Model B: build OK, tests 5/5 pass (includes new `test-output`).
@@ -128,7 +130,7 @@ Platform stdout prim behavior in Model B:
 - Test integration change:
   - Adds `output` test target in `B/CMakeLists.txt:727-740`
 - New test file:
-  - `B/test/test-output.c` (currently untracked in workspace status: `?? test/test-output.c`)
+  - `B/test/test-output.c`
 - Parameters/API:
   - No public API signature changes.
 
@@ -163,18 +165,16 @@ Edge-case coverage in B tests:
 - Better test depth than A: includes `_mi_fprintf(NULL, NULL, ...)` regression and `prefix != NULL` edge case in `B/test/test-output.c:108` and `B/test/test-output.c:168`.
 
 ### Cons (Model B)
-- `B/test/test-output.c` is currently untracked (`?? test/test-output.c`), so PR can accidentally miss the new tests unless explicitly added.
 - Test file uses internal header/API (`#include "mimalloc/internal.h"`, `_mi_fputs`, `_mi_fprintf`) in `B/test/test-output.c:18`, which is okay for internal regression but should be called out clearly in review notes.
 - Like A, includes extra scope change in `_mi_verbose_message(...)` (`B/src/options.c:524-529`) without dedicated thread-prefix test.
 
 ### PR readiness (Model B)
-- **Ready after one small packaging fix.**
-- Core code and tests are stronger than A for this issue. Main blocker is to ensure `test/test-output.c` is tracked in commit.
+- **Ready for review/merge from code-and-test quality perspective.**
+- Core code and tests are stronger than A for this issue.
 
 ### Concrete next-turn fixes (Model B)
-1. Add/track `B/test/test-output.c` in commit (mandatory).
-2. Optionally add one OS-level fd-capture test (pipe/redirect) for stronger end-to-end validation.
-3. Add one tiny test for `_mi_verbose_message` thread-prefix if keeping that out-of-scope change.
+1. Optionally add one OS-level fd-capture test (pipe/redirect) for stronger end-to-end validation.
+2. Add one tiny test for `_mi_verbose_message` thread-prefix if keeping that out-of-scope change.
 
 ---
 
@@ -189,13 +189,13 @@ Edge-case coverage in B tests:
 | Better Interface Design              | Tie (0)             | Both keep public API stable and use same internal route design (`out`/`arg` in `_mi_fputs`). |
 | Better error handling and robustness | Model B (-1)        | Code robustness is similar, but B’s tests cover more edge paths (`_mi_fprintf`, direct output fun, prefix). |
 | Better comments and documentation    | Model B (-1)        | B’s test file comments map each test to the exact routing bug and expected behavior more explicitly. |
-| Ready for review / merge             | Model B (-1)        | Both compile and pass tests; B is closer, but must ensure `test/test-output.c` is included in final tracked changes. |
+| Ready for review / merge             | Model B (-2)        | Both compile and pass tests; B has more direct regression coverage for `_mi_fputs` and `_mi_fprintf` routes. |
 
 ---
 
 ## Final justification: which model is better and why
 Model B is better overall for turn 2.
 
-Reason: code-level fd routing fixes are effectively the same in both models (`_mi_fputs` + `_mi_prim_out_stdout` path), but Model B provides stronger and more targeted verification through `test/test-output.c` and CMake integration. The only practical blocker is commit hygiene (`test/test-output.c` currently untracked), which is easy to fix.
+Reason: code-level fd routing fixes are effectively the same in both models (`_mi_fputs` + `_mi_prim_out_stdout` path), but Model B provides stronger and more targeted verification through `test/test-output.c` and CMake integration.
 
-If commit hygiene is corrected, Model B is the better candidate to continue from for the next prompt.
+Commit/staging hygiene is excluded from this score, so based on code + tests only, Model B is the better candidate to continue from for the next prompt.
