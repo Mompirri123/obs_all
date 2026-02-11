@@ -170,18 +170,19 @@ overall:
 
 #### Model A:
 - Pros:
-	- 
+	- good modularisation, `_mi_page_local_free_to_free()` acts as a allocation helper. `_mi_page_retire_prompt_free()` and `_mi_page_retire_set_expire()` act as helper during end cleanup in addition to other helpers. Edge cases are handled well and tests in the file `text-churn.c` do 'Pass/fail correctness tests for the small-allocation churn optimisations' as said by its own comments. also has tests for 'sole-page retirement' and 'small-block multi-page retirement', and also adds separate 'Edge-case tests' like `test_edge_calloc_after_dirty`, `test_edge_partial_free` etc.; Benchmarks are also removed from the ctest and are now manual meeting all requirements
 	
 - Cons:
-	- 
+	- Contains build artefacts, could split `test-churn.c`even more based on test type. The logic is still complex and many returns could use a comment or two to explain better why exactly the page is being kept or being freed.
 
 
 #### Model B:
 - Pros:
-	- 
+	- Benchmarking is manual as is not in ctest. has good modularity and `_mi_page_retire()` is very easy to follow as it has good comments and explanations and the logic split is very clean and modular, the helpers `_mi_page_retire_track`, `_mi_page_retire_small_in_queue` etc.; are very well split. Adds explicit tests of pass / fail tests for new functions. 
 	
 - Cons:
-	- 
+	- could use more edge case testing, as it misses some explicit checks like duplicate block uniqueness test. Could also have more benchmarks like single object benchmark and Partial free speed benchmarks.
 	
 #### Justification for best overall
 
+Model A is slightly better, this is because it tests and validates more edge cases like duplicate block uniqueness test and has better bench marks like  single object benchmark and Partial free speed benchmarks when compared to B and also has better performance in those edge cases as they where never optimised or tested by B. That said model B still does a decent job by itself and only misses on some edge cases and also a bit better modularity in code compared to A. So as the difference in edge case handling is more important than modularity which is not bad in A seen by itself, Model A is slightly better
