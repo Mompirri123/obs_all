@@ -162,7 +162,7 @@ File: `B/tests/test_furl.py`.
 
 ### Cons
 - `_parse_host_port()` error text is generic (`Invalid host:port`) and could be more specific for debugging.
-- `test_netloc()` coverage is good, but slightly less broad than A (A also checks empty port and negative `-1`).
+- `test_netloc()` still misses a couple of malformed/invalid patterns like empty port (`[::1]:`) and negative port form (`example.com:-1`).
 
 ### PR readiness (Model B)
 - **Ready for review/merge**.

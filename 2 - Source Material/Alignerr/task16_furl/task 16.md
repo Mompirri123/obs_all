@@ -118,13 +118,26 @@ There are still some improvements to make `origin.setter` have no side effects. 
 
 #### Model A:
 - Pros:
+	- 
 	
 - Cons:
+	- 
 
 
 #### Model B:
 - Pros:
 	
 - Cons:
+
+| Question of which is / has           | Answer Given | Justoification Why? |
+| ------------------------------------ | ------------ | ------------------- |
+| Overall Better Solution              | A better     |                     |
+| Better logic and correctness         |              |                     |
+| Better Naming and Clarity            |              |                     |
+| Better Organization and Clarity      |              |                     |
+| Better Interface Design              |              |                     |
+| Better error handling and robustness |              |                     |
+| Better comments and documentation    |              |                     |
+| Ready for review / merge             |              |                     |
 
 #### Justification for best overall
