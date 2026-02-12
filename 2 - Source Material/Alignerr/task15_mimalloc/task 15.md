@@ -84,17 +84,22 @@ There are still some issues to fix, the `mi_out_std...()` functions still use `f
 
 #### Model A:
 - Pros:
-	- Correctly splits with conditions `out == stdout`, `out == stderr`, and `out == NULL` within `_mi_fputs()`. `mi_out_stderr()` and `mi_out_stdout` now call `_mi_prim_out_stderr(msg)` and `_mi_prim_out_stdout(msg)`respectively instead of `fputs(..)`. 
-	
+	- Correctly splits with conditions `out == stdout`, `out == stderr`, and `out == NULL` within `_mi_fputs()`. `mi_out_stderr()` and `mi_out_stdout` now call `_mi_prim_out_stderr(msg)` and `_mi_prim_out_stdout(msg)`respectively. Adds tests like `test_output_capture`to check whether the file descriptor related routing changes are done properly. 
+	  
 - Cons:
+	- Not enough to tests to prove that, whether `mi_vfprintf()` is good to go, it does not even test for simple `out == NULL` condition explicitly. Adds `_mi_verbose_message`changes which are not required for fd routing related issues mentioned and is not even tested if it properly works too. 
 
 
 #### Model B:
 - Pros:
+	- correctly splits the logic related to routing file descriptors (`stderr`and `stdout` and `NULL`) within `_mi_fputs()`. Adds `test-output.c` file and mentions its purpose as 'messages are correctly routed to the intended file descriptors and are never silently lost' and adds tests to check whether the routing is proper or not with tests like `test_stderr_not_routed_to_custom()`, `test_stdout_not_routed_to_custom()` and `test_null_routes_to_custom()`. then it checks whether `_mi_fprintf` with `NULL`  goes to default handler or not using `test_fprintf_not_dropped()`.
 	
 - Cons:
+	- Test file includes `mimalloc()` from `internal.h`file. This is ok but better to keep the test related imports separate or mention this in comments or docs. changes `_mi_verbose_message()` which is a good change but is out of our requirements.
 
 #### Justification for best overall
+
+Model B is better than Model A because, both the Models handle the fd routing related changes in a similar fashion but Model B goes a step above in its tests with explicit checks like test_stderr_not_routed_to_custom()`, `test_stdout_not_routed_to_custom()` and `test_null_routes_to_custom(). Model B also seperates the tests properly into `test-output.c`file for the new tests. So overall both models requirement implementation is similar but the tests and modularity of Model B make it better than Model A
 
 ---
 
