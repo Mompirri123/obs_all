@@ -1,10 +1,10 @@
 **Created:** *<span color ="cyan"></span>* <span style="color: green; font-style:italic;"> .., : </span>
 
 **UUID:**
-81782293-b5ee-470e-9ed8-a3a78dee9e9e
+5a8852e0-630a-4e89-ba54-4728e613f3e1
 
 **Task ID:**
-81782293-b5ee-470e-9ed8-a3a78dee9e9e
+5a8852e0-630a-4e89-ba54-4728e613f3e1
 
 **git rev-parse HEAD:**
 76f9418e282fcf141fa10c1872bac5fb22477d96
@@ -23,7 +23,7 @@ cc_agentic_coding
 Malformed encoded URLs can slip through silently in one component but warn in another.
 ### Turn 1 Prompt:
 
-Fix the issue where malformed encoded URLs can silently slip through a component but then suddenly warn in another component
+Fix the issue where malformed encoded URLs can silently slip through a component but then suddenly show warning in another component
 ### Turn 1 Eval Table:
 
 | Question of which is / has           | Answer Given | Justoification Why? |
@@ -41,8 +41,10 @@ Fix the issue where malformed encoded URLs can silently slip through a component
 
 #### Model A:
 - Pros:
+	- `has_valid_percent_encoding()` is nicely modularised and is used in both `Path._segements_from_path()` and `Query._extract_items_from_Querystr()` improving consistency. `warned`in `_segements_from_path()` and `_extract_items_from_Querystr()` gives one single warning per input string. Implementation of `Path`/ `Query` / `Fragment`constructors which means a strict flow is followed. `%`and `%3` etc.; tests check particular edge cases which are generally missed.
 	
 - Cons:
+	- 
 
 #### Model B:
 - Pros:

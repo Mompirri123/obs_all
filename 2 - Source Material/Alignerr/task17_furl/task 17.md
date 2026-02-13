@@ -83,47 +83,25 @@ Also `q.remove('True')` should only remove only those with key as 'True' but ins
 
 #### Model A:
 - Pros:
+	- Improves working of  `(key, value)` pair removal handling in `Query.remove(..)`. `'True'`and `True` now work differently as asked for and tests it. `len()`failure risk is avoided totally using `items = list(query)`
 	
 - Cons:
+	- Edge cases are tested within a single function `test_remove` this makes it harder to catch which exact error, instead should have been unit tests targeting single edge case explicitly. `items = list(query)`could increase the memory usage considerably for very large iteratables.
 
 
 #### Model B:
 - Pros:
+	- In `Query.remove`the tuple pair ambiguity is correctly fixed. The `try.. except.. ValueError` block in `popvalue()` is well written and handles missing value edge cases too. `test_remove_edge_cases()` has separate call for each edge case and covers many different types of edge cases. Over all a very well written code and tests
 	
 - Cons:
+	- `if query is True`in `furl.py :991` is identity based which is fine but the reason to switch form explicit `bool` is not commented about.
 
 #### Justification for best overall
+
+I think Model B is slightly better than Model A this is because, Model A improves the testing and is also mostly correct but Model B has better tests and has more edge case correctness. Separation of logic also helps to quickly check which is failing and what to fix faster with help of `test_remove_edge_cases()`in Model B whereas Model A misses the mark here. Model B also checks for tuple length issues with tests. So overall though both are ok Model B is safer to merge and hence slightly better than A
 
 ---
 
-## Turn 3
+# Auto QA:
 
-### Turn 3 Prompt:
-
-### Turn 3 Eval Table:
-
-| Question of which is / has           | Answer Given | Justoification Why? |
-| ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
-
-### Pros and cons
-
-#### Model A:
-- Pros:
-	
-- Cons:
-
-
-#### Model B:
-- Pros:
-	
-- Cons:
-
-#### Justification for best overall
+https://alignerrd-portal.vercel.app/submission/ad12ac76-0c2c-4c0a-8a3a-1bf62997c9d0/results
