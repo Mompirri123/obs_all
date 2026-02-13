@@ -28,9 +28,6 @@ cc_agentic_coding
 	- Check with tests and a before/after comparison 
 - multiple allocations and frees are done in a small time by allocator which in turn slows performance improve allocator performance and test for improvement
 
-- [[task 14 A COT]]
-- [[task 14 B COT]]
-
 ### Turn 1 Prompt:
 Fix the following issue where, many small memory allocations and frees which could be avoided by the allocator happen in a short time and are resulting in performance issues. Optimise the allocator and test the improvements
 

@@ -13,8 +13,7 @@ https://github.com/gruns/furl
 cc_agentic_coding
 
 ---
-# Saves and Logs - task xx
-
+# Saves and Logs - task 16
 
 ## Turn 1
 
@@ -118,26 +117,33 @@ There are still some improvements to make `origin.setter` have no side effects. 
 
 #### Model A:
 - Pros:
-	- 
+	- moved host / port related parsing into `_parse_host_port()` which is a very good refactor. `netloc.setter` path is very solidly written and keeps safe assignment order. Tests like  `test_netloc()` and `test_origin()` are very nicely written, and includes various test cases which is great. Port-leak case is tested for origin and also for when there is no port explicitly.
 	
 - Cons:
-	- 
+	- `origin.setter` bypasses `host.setter` , `port.setter`  and instead assigns to `self.host`and `self.port`directly, which means host validation steps, normalisation rules in `host.setter`are fully skipped. 
 
 
 #### Model B:
 - Pros:
+	- Uses setters for assigning to `self.host` and `self.port` which perform input validation and host validation checks before assigning them. The error case when no port was given old port could leak is also fixed and comments where added for it. Wide range of texts that no-side-effects case, default port resets etc.; `origin.setter` is very well written
 	
 - Cons:
+	- `_parse_host_port()` error text is very generic and could use more specifically written debug print messages. Misses the negative port case in `test_netloc()` and could let something like 'example.com:-1'
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              | A better     |                     |
-| Better logic and correctness         |              |                     |
+| Overall Better Solution              | B better     |                     |
+| Better logic and correctness         | B very       |                     |
 | Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Better Organization and Clarity      | b slightly   |                     |
+| Better Interface Design              | b slightly   |                     |
+| Better error handling and robustness | b very       |                     |
+| Better comments and documentation    | a barely     |                     |
+| Ready for review / merge             | b better     |                     |
 
 #### Justification for best overall
+Model B is better than Model A, this is because both Models handle the main requirement but Model A has some decent issues like  'host validation steps, normalisation rules in `host.setter`are fully skipped'. Only issue with Model B is that it misses a very particular check in `test_netloc()` and may be could use a better error msg. So Model A and B both solve it but A does have issues while B doesnt
+
+# Results
+
+https://alignerrd-portal.vercel.app/submission/3dd972c3-d248-4f4e-b5a4-05c796f592f6/results
