@@ -28,34 +28,43 @@ Fix the issue where user removing a parameter in one call can delete more than w
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Overall Better Solution              | B better     |                     |
+| Better logic and correctness         | B better     |                     |
+| Better Naming and Clarity            | B barely     |                     |
+| Better Organization and Clarity      | B barely     |                     |
+| Better Interface Design              | A barely     |                     |
+| Better error handling and robustness | A slightly   |                     |
+| Better comments and documentation    | B slightly   |                     |
+| Ready for review / merge             | B better     |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
+	- The tuple in `Query.remove(query)` was previously treated like a list of keys and this change explicitly targets the problem to solve. `Query.remove('key1', 'value1')` now only removed the particular key value pair and still keeps the pair where same key could have another value (ex: `('key1', 'value2')` would not be removed ), this change is also checked for that it works. All the removers call their intended `self.query.remove(...)`remover
 	
 - Cons:
-
+	- `len(query)`is called before any type checking is being done, which means it could throw/raise a `TypeError` for things like iterators or any iterate-able datatype that does not have a proper size(~non-sized iterateable(s)) . Regression risks are not tested in `Query.remove`, also could use more comments to explain its own code. Something like `items = [xyz]` would have been a better alternative to the `pass`, as this adds un-necessary complexity. 
+	  
 #### Model B:
 - Pros:
+	- Has a very simple and clear logic which is easy to follow or maintain. Explicitly handles tuple pairs within  `remove(self, query)`. No `len()` call before doing the type checks, this helps the Iterator behaviour to be safe. Fixes tuple pair issues in `Query.remove(..)` without any changes to existing `list`type input.
 	
 - Cons:
-
+	- Could add more tests for `Query.remove`, like a regression test, or test for an explicit bug etc.; Does the core responsibility properly but edge case handling is debatable and could be more rigid if tests where written for them.
+	  
 #### Justification for best overall
+
+- Model B is better than Model A, this is because Model A and B both do the `Query.remove(..)` method to solve the existing issues, but model B does this without changing existing behaviour, while Model A does. Also Model A `len(query)`is stored even before checking for type errors etc.; this could lead to errors during runtime, where as Model B has no such errors. Both of them fail to add enough tests but Model A has more than B. So overall Model B is better
 
 ---
 
 ## Turn 2
 
 ### Turn 2 Prompt:
+
+Improve `Query.remove` edge-case behavior and add tests for tuple-pair regression, iterator/generator input, mixed removals like q.remove(['a', ('b','2')])), missing key/value, etc.; 
+Also `q.remove('True')` should only remove only those with key as 'True' but instead behaves like `q.remove(True)`, this should be fixed.
 
 ### Turn 2 Eval Table:
 
