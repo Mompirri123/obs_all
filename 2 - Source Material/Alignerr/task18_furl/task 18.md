@@ -107,12 +107,10 @@ Warning tests still do not show full / absolute path and instead show partial pa
 ---
 
 ## Turn 3
-- Update Path.remove() to warn with corrected remove input (not str(self)), while keeping Path.load() full absolute-path warnings
-- Add strict=True tests for Path.add() and Path.remove(): malformed inputs, single-warning behavior, valid inputs, and strict=False no-warning cases.
 
 ### Turn 3 Prompt:
 
-
+Update `Path.remove()`function to show warning messages correctly with remove input and test robustness with corresponding tests. Add tests with `strict=True` for `Path.add()` to test for malformed input string(s), warnings, input checks, no warning cases etc.; and improve `.add()` accordingly. 
 
 ### Turn 3 Eval Table:
 
