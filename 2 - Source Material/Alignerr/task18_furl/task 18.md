@@ -143,3 +143,7 @@ Update `Path.remove()`function to show warning messages correctly with remove in
 	  
 #### Justification for best overall
 - Comparing Model A with Model B, Model A can over encode safe characters in warning message whereas Model B shows the required remove input, this means Model A needs a fix but model B does not for `.remove()`. The `_segments_from_path(..)`returns 3 values and both `load` and `add` ignore a value, this is un necessarily complex from Model A where as Model B simply returns required `(segments, has_invalid)`. The only issue with Model B is that it doesn't add any comments for `.remove()` even when code in it is changed and hence is already near flawless. Hence why Model B is better than Model A
+
+# AutoQA
+
+https://alignerrd-portal.vercel.app/submission/5a8852e0-630a-4e89-ba54-4728e613f3e1/results
