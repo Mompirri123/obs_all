@@ -71,35 +71,48 @@ Warning tests still do not show full / absolute path and instead show partial pa
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Overall Better Solution              | B better     |                     |
+| Better logic and correctness         | B slightly   |                     |
+| Better Naming and Clarity            | B barely     |                     |
+| Better Organization and Clarity      | a barely     |                     |
+| Better Interface Design              | a barely     |                     |
+| Better error handling and robustness | b slightly   |                     |
+| Better comments and documentation    | b barely     |                     |
+| Ready for review / merge             | b better     |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
+	- The `Path._segments_from_path()` displays a warning once after the full parsing is done which is nice
+	- Correction warning text given by `corrected = '/'.join(segments)` is very accurate for malformed percent cases too
+	- Added some strict tests, that cover a lot of cases and also includes multiple malformed segments check and also tests `path.load()` behaviour is proper or not
 	
 - Cons:
-
-
+	- The warning could be shown before completely switching to fixed full / absolute path and instead could be shown at the moment it decides the change is needed (forced absolute path could show wrong path, caused as there are no tests for this condition. `Path.load()`s final state is not fully loaded in the above case before throwing the error message.
+	
 #### Model B:
 - Pros:
+	- `Path.load()`shows warning messages after the full absolute path is obtained, this means the requirement for full-path is handled well, this was done after forced absolute case was also tested by `test_load_strict()` test that was added. 
+	- The `_segements_from_path()` functions `has_invalid = False`makes the logic and the parsing cleaner.
 	
 - Cons:
+	- `Path.remove()`warning text behaves now similarly to `path.load()`and shows the final `str(self)`s value which is the full absolute path, but should show the input for `remove` (ex: 'a%67yo')
+	- Tests are focusing mostly on `load()`, `set()`functions, and the newly done changes in `Path.add()`or `Path.remove()` are not well tested which implies regression risk is left un-noticed.
 
 #### Justification for best overall
+
+- Comparing both the models, Model B does a better job at implementing the requirements as it shows warning messages after the full absolute path is obtained unlike A which could show  wrong path in forced absolute path situations. That said Model B could use a few fixes like improving the `load()`function and updating `remove()` to fix warning issue and tests that unit test `add()` and `remove()`, while A needs a much critical issue in comparison to fix as it could show warnings before completely switching to fixed full / absolute path and end up throwing completely wrong warnings.  So Model B is better overall
 
 ---
 
 ## Turn 3
+- Update Path.remove() to warn with corrected remove input (not str(self)), while keeping Path.load() full absolute-path warnings
+- Add strict=True tests for Path.add() and Path.remove(): malformed inputs, single-warning behavior, valid inputs, and strict=False no-warning cases.
 
 ### Turn 3 Prompt:
+
+
 
 ### Turn 3 Eval Table:
 
