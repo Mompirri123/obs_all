@@ -116,26 +116,30 @@ Update `Path.remove()`function to show warning messages correctly with remove in
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Better logic and correctness         | B better     |                     |
+| Better Naming and Clarity            | B barely     |                     |
+| Better Organization and Clarity      | B slightly   |                     |
+| Better Interface Design              | A barely     |                     |
+| Better error handling and robustness | B slightly   |                     |
+| Better comments and documentation    | A barely     |                     |
+| Ready for review / merge             | B better     |                     |
+| Overall Better Solution              | B better     |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
+	- `Path.load()` warning is now thrown after the absolute path is fully updated / known. `Path.remove()` now uses remove input in its warnings as asked for. strict tests where added for `load()`, `add()`, and `remove()`and cover a large range of cases.
 	
 - Cons:
-
-
+	- `corrected_path`in `Path.remove()` comes from raw quoted segments and is then reused; this can over-encode safe characters in the warning thats displayed. `_segments_from_path(path)` now returns three values and then `load()`and `add()` ignore one of the values, this adds un necessary complexity and could be handled in a simpler way.
+	
 #### Model B:
 - Pros:
+	- `Path.load()` full path warning is correct and consistent. `Path.remove()` warning is updated to be input focused, so it is correct for characters that are safe cause it uses `_path_from_segments(segments)`. The tests `test_add_strict()` and `test_remove_strict()` have wide range of tests. `Path.add()` also suggests corrected add input (ex: new%67ne/longXP) and not the final path or full / absolute path, which is better for users clarity. The strict tests depths are also quite good
 	
 - Cons:
-
+	- `Path.remove()` does not have any of its comments updated though the function was updated, while the comments for `load()`, `add()` comments where updated
+	  
 #### Justification for best overall
+- Comparing Model A with Model B, Model A can over encode safe characters in warning message whereas Model B shows the required remove input, this means Model A needs a fix but model B does not for `.remove()`. The `_segments_from_path(..)`returns 3 values and both `load` and `add` ignore a value, this is un necessarily complex from Model A where as Model B simply returns required `(segments, has_invalid)`. The only issue with Model B is that it doesn't add any comments for `.remove()` even when code in it is changed and hence is already near flawless. Hence why Model B is better than Model A
