@@ -1,5 +1,6 @@
 # Alignerr Code Human Preference Project
 
+
 > **Purpose of this page**: This is your **main hub**. Use it to navigate to more detailed notes depending on the *type of task* you’re doing (Turn 1 prompting, follow‑up steering, rationale writing, submission, etc.).
 
 ---
@@ -39,7 +40,9 @@ If something feels unclear, cross‑check with:
 
 * **Project Instructions (official)** ← your authoritative source
 
----
+
+-----
+
 ## Official Project Instructions (Authoritative)
 
 🔗 [[Official Project Instructions – CLI Edition]]

@@ -1,7 +1,7 @@
 # Tasks in Mimalloc
 
 - [ ] `src/options.c` boolean env parsing should use exact token matching instead of substring matching. User issue: invalid values can be interpreted as valid flags, causing surprising config behavior.
-- [ ] `src/options.c` strict `stderr` routing behavior cleanup. User issue: error logs are missing, delayed, or appear in unexpected sinks, making production incidents hard to diagnose  
+- [x] `src/options.c` strict `stderr` routing behavior cleanup. User issue: error logs are missing, delayed, or appear in unexpected sinks, making production incidents hard to diagnose  
       [[task 15]]
 - [ ] `src/options.c` reduce/avoid CRT dependency (`strtol`) in early option init path. User issue: preload or constrained-runtime startup can behave inconsistently when allocator init touches CRT paths.
 - [ ] `src/prim/emscripten/prim.c` track first-use zeroed memory state instead of always conservative `is_zero=false`. User issue: WebAssembly apps do extra zeroing work and lose performance in allocation-heavy workloads.
@@ -9,7 +9,7 @@
 - [ ] `src/prim/unix/prim.c` replace hard-coded huge page size with query/config fallback. User issue: workload uses more CPU and memory bandwidth than expected on some Linux hosts, with inconsistent performance across machines.  
     
 - [ ] `include/mimalloc/internal.h` free-list alignment validation. User issue: app crashes randomly with hard-to-reproduce heap corruption after long runtimes, even in code that appears correct
-- [ ] `src/heap.c` heap reset strategy optimization. User issue: short-lived allocation bursts cause avoidable CPU overhead, reducing throughput in services with frequent heap churn.  
+- [x] `src/heap.c` heap reset strategy optimization. User issue: short-lived allocation bursts cause avoidable CPU overhead, reducing throughput in services with frequent heap churn.  
       [[task 14]]
 - [ ] `src/prim/unix/prim.c` improve NUMA node discovery on platforms with known gaps (for example DragonFly TODO). User issue: allocator falls back to weaker NUMA decisions and gets lower locality/throughput.
 - [ ] `src/page.c` reclaim-path full-queue push behavior tuning. User issue: memory reuse is less efficient under pressure, causing periodic latency spikes and higher tail latencies.

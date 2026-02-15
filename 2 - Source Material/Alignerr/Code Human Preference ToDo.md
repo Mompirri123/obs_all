@@ -1,8 +1,5 @@
 # Claude Hfi setup
 
-# Office hours link video
-🔗📝 -> [[Code Human Preference Project - Main Hub and Linked Notes]]
-
 # Pick a Repo
 ### Repo 1
 ***Repo Name*** icecream

@@ -15,6 +15,10 @@ https://github.com/gruns/furl
 **interface code:**
 cc_agentic_coding
 
+
+**AutoQA:** 007
+https://alignerrd-portal.vercel.app/submission/ace07252-7bb3-4b73-8115-5c2bbd132d70/results
+
 ---
 # Saves and Logs - task 19
 
@@ -111,26 +115,32 @@ Fix the issue where, `self._port = None` is being directly used and could later 
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better Logic and Correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better Error handling and Robustness |              |                     |
-| Better Comments and Documentation    |              |                     |
-| Ready for Review / Merge             |              |                     |
+| Better Logic and Correctness         | B very       |                     |
+| Better Naming and Clarity            | B slightly   |                     |
+| Better Organization and Clarity      | B better     |                     |
+| Better Interface Design              | A barely     |                     |
+| Better Error handling and Robustness | B slightly   |                     |
+| Better Comments and Documentation    | A barely     |                     |
+| Ready for Review / Merge             | B better     |                     |
+| Overall Better Solution              | B better     |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
-	- 
+	- The logic in parsing is well modularised in the `_parse_host_port(....)`. `origin.setter` and `netloc.setter` use the modularised `_parse_host_port(..)` .`_clear_port(..)` clears `_port` when no port is provided in the `origin.setter` which makes port logic more cleaner. 
 	
 - Cons:
+	- `origin.setter` and `netloc.setter` can still partially update `port`. Still has no tests for `_parse_host_port()` and also  added no tests for 'invalid-host + valid-port' condition.
 
 #### Model B:
 - Pros:
+	- `origin.setter` and `netloc.setter` use the `_parse_host_port`which is a modularised helper both common logic in both functions. `origin.setter` and `netloc.setter` now validate the `port`and `host` first and then assign later, removing the partial updating risk. `validate_port(self, port)` modularises the validation for port values that are not `None`. 
 	
 - Cons:
+	- No test for `_parse_host_port()` is added though its indirectly tested.
 
 #### Justification for best overall
+
+- Comparing both the models, Model B’s `origin.setter` and `netloc.setter` now validate first and assign later, so it fixes the main issue, whereas model A still changes `port` before host validation and can leave partial state. But, both do not add any direct test for `_parse_host_port()`.
+ 
