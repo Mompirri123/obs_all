@@ -25,16 +25,16 @@ cc_agentic_coding
 
 ### Turn 1 Eval Table:
 
-| Question of which is / has           | Answer Given | Justoification Why? |
-| ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Question of which is / has           | Answer Given | Justification Why? |
+| ------------------------------------ | ------------ | ------------------ |
+| Overall Better Solution              |              |                    |
+| Better logic and correctness         |              |                    |
+| Better Naming and Clarity            |              |                    |
+| Better Organization and Clarity      |              |                    |
+| Better Interface Design              |              |                    |
+| Better error handling and robustness |              |                    |
+| Better comments and documentation    |              |                    |
+| Ready for review / merge             |              |                    |
 
 ### Pros and cons
 

@@ -4,8 +4,6 @@ prompt last hash -> git rev-parse HEAD -> 61f969c22592291836988f3f9ba4231d06bacf
 .tar
 connect trajectories -> `tmux attach -t <uuid-A/B>`
 
-
-
 ---
 
 # What our prompt actually requires

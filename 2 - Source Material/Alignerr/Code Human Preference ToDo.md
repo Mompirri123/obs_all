@@ -15,6 +15,7 @@
 ### Repo 3
 ***Repo Name*** furl
 🔗***URL*** [furl github](https://github.com/gruns/furl.git)
+[[furl tasks]]
 
 ### Repo 4
 ***Repo Name*** Unity
@@ -33,28 +34,12 @@
 # Task Documentation
 
 ## [Icecream]() based tasks
-- [[task 1 saves]]
-
-- [[task 2 saves]]
-
-### Jan 15 2026
-- [[task 3 saves]]
-
-- [[task 4]]
-
-### Jan 16 2026
-- [[task 5]]
-
-
-### Jan 17 2026
-- [[task 6]]
-
-
-### Feb 1 2026
-- [[task 11]]
+[[icecream tasks]]
 
 Feb 
 ## [Furl](https://github.com/gruns/furl.git) based tasks
+[[furl tasks]]
+[[smallpond]]
 
 ## interface password
 cc_agentic_coding

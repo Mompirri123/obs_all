@@ -16,7 +16,7 @@ https://github.com/gruns/furl
 cc_agentic_coding
 
 ---
-# Saves and Logs - task xx
+# Saves and Logs - task 19
 
 ## Turn 1
 
@@ -67,31 +67,37 @@ Fix the issue where, `self._port = None` is being directly used and could later 
 
 ### Turn 2 Eval Table:
 
-| Question of which is / has           | Answer Given | Justoification Why? |
-| ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Question of which is / has           | Answer Given | Justification Why? |
+| ------------------------------------ | ------------ | ------------------ |
+| Better logic and correctness         | B slightly   |                    |
+| Better Naming and Clarity            | A barelyy    |                    |
+| Better Organization and Clarity      | B slightly   |                    |
+| Better Interface Design              | B slightly   |                    |
+| Better error handling and robustness | B slightly   |                    |
+| Better comments and documentation    | A slightly   |                    |
+| Ready for review / merge             | B slightly   |                    |
+| Overall Better Solution              | B slightly   |                    |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
+	- Uses `extract_host_and_port()` in both the `.setter` functions of `origin`and `netloc` improving modularity. direct-write issue that could previously occur is fixed by using `clear_port()`function now. IPv6 without and with port has also been tested,  including the malformed IPv6 strings. Adds new tests for `extract_host_and_port()` helper too. `clear_port(self)` will clear stored `port` value so it can be taken from `scheme`  instead  and for unknown scheme this will become `None`.
 	
 - Cons:
+	- `clear_port()` is made public but it is only used internally, this is nothing but an un necessary external exposure. Error messages can lose context  of `origin`or `netloc`. `origin.setter` applies `self.port = port` before setting host using `self.host = host` and `if self.host = host` fails (ex: invalid host with a valid port ), `port` stays changed, this case is missed to be checked by the tests too.
 
 
 #### Model B:
-- Pros:
-	
-- Cons:
-
+-  Pros
+	- Does a very good encapsulation of the methods `_parse_host_port`, and the `_clear_port` . Errors show context of `_parse_host_port()` issues, as Model B throws/displays error messages like `Invalid origin ...` / `Invalid netloc ...`. Tests check for `_port` issues.
+	  
+- Cons
+	- The setter sets directly to private attributes and cause of this it can cause an update to be partially done, this issue can be found to happen in  both the `origin.setter` and `netloc.setter`. No tests added for `_parse_host_port()` function itself. There is a comment in the tests that says "behaviour for any error .....”, and all to miss testing the case where host is failing to be set while having a valid-port.
+	  
 #### Justification for best overall
+
+- Comparatively speaking, Model B does a better job at encapsulating the `_parse_host_port`, and the `_clear_port`. Model B errors can make the context clear unlike model A where the error being thrown from `origin`or `netloc` remains unknown from the error message.   same partial-update issue occurs for direct setters where there is a invalid-host with a valid-port. B keeps internal functions private, where as in A, it has a public `clear_port()`  that was only used internally!. Both models have improved malformed input handling. Both have decently useful comments but B has a mis-informing comment in tests. So overall, Model B is slightly better than A.
 
 ---
 
@@ -99,18 +105,20 @@ Fix the issue where, `self._port = None` is being directly used and could later 
 
 ### Turn 3 Prompt:
 
+- Update `origin.setter` and `netloc.setter`, so that a failure never actually would update private state partially. Also add tests for `parse_host_port()`. Update or add some tests to test for invalid-host with valid-port error paths and any other modifications done.
+
 ### Turn 3 Eval Table:
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
 | Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
+| Better Logic and Correctness         |              |                     |
 | Better Naming and Clarity            |              |                     |
 | Better Organization and Clarity      |              |                     |
 | Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Better Error handling and Robustness |              |                     |
+| Better Comments and Documentation    |              |                     |
+| Ready for Review / Merge             |              |                     |
 
 ### Pros and cons
 
@@ -118,7 +126,6 @@ Fix the issue where, `self._port = None` is being directly used and could later 
 - Pros:
 	
 - Cons:
-
 
 #### Model B:
 - Pros:
