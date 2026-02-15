@@ -124,6 +124,7 @@ Fix the issue where, `self._port = None` is being directly used and could later 
 
 #### Model A:
 - Pros:
+	- 
 	
 - Cons:
 
