@@ -1,4 +1,12 @@
 
+[[task 16]]
+[[task 17]]
+[[task 18]]
+[[task 19]]
+[[task 20]]
+
+
+
 | Task file   | PR idea                                                                                        | Likely files          | Est. non-test LOC | User issue it prevents                                                                              |
 | ----------- | ---------------------------------------------------------------------------------------------- | --------------------- | ----------------: | --------------------------------------------------------------------------------------------------- |
 |             | Path immutability + absolute-path preservation in `Path.load()`/`Path.add()`                   | `furl/furl.py`        |            70–120 | Reused path objects/lists get mutated, causing later URLs to be wrong.                              |

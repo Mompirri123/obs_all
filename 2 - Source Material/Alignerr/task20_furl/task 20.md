@@ -78,29 +78,33 @@ There are sill some issues to fix. Directly changing `self.segments` can fully
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Overall Better Solution              |              |                     |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
+| Better logic and correctness         | A better     |                     |
+| Better Naming and Clarity            | B barely     |                     |
+| Better Organization and Clarity      | A slightly   |                     |
+| Better Interface Design              | A barely     |                     |
+| Better error handling and robustness | A slightly   |                     |
+| Better comments and documentation    | A barely     |                     |
+| Ready for review / merge             | A better     |                     |
+| Overall Better Solution              | A better     |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
+	- `index` is type checked in all the functions / methods based on `index`. Comments showing the warnings / errors that would be displayed if something fails written for all the main functions / methods, also `removesegment(index)` is implemented very well and works with absolute paths and also tests `Path ('/').removesegment('0')`.
 	
 - Cons:
-
-
+	- `setsegment(index, segment)`,`removesegment(index)`, `insertsegment(index, segment)` has repeating type validation logic, which could be modularised into one function.
+	  
 #### Model B:
 - Pros:
+	- Index validation logic is well modularised and named as `validate_segment_index(index)` and is re used as a nice helper. similarly, `removesegment(index)` logic is also well modularised. Test for invalid `index` is good.
 	
 - Cons:
+	- `_reload_segements(segments)` only preserves absolute paths when the value of `segments`parameter is not empty. This means `removesegment(index)` could remove the only`/` for absolute paths with one segment which is not intended. `appendsegment(segment)` can give `'//`when done from root i.e.; `/`. 
 
 #### Justification for best overall
+- Model A is better than Model B, this is because both of the functions do well with base cases but when it comes to handling edge cases Model A does a better job where as Model B's `removesegment(index)` could remove the only`/`. Also Model A has more tests. Only thing B does well is that it has better modularisation of its logic (ex: `validate_segement_index(..)`). 
 
 ---
 
