@@ -29,11 +29,10 @@ cc_agentic_coding
 #### Model A
 
 - **Pros:**
-	- 
-	  
+	- Used `mi_segment_is_abandoned()` helper function that was already existing instead of directly doing `segment->thread_id` to check if its a thread that was abandoned. This makes it both more modular and more safer way for avoiding datarace's. Changes are focused on segment ownership / abandoning, thats very closely related to heap corruption mentioned to be corrected. Simple and small change. `mi_free_block_local(..)`, calls the calls `_mi_page_retire(..)` function when the page is not being used  `page->used == 0`, which is a nice way to handle retiring pages.
 	
 - **Cons:**
-	- 
+	- Could add some comments about the code changes that where made.  Seriously lack of  tests. NO tests for checking about`thread_id`  and threads running for long being properly identified or not, `mi_free_block_mt()` etc.; checking them could give areas of failure that could use some improvements
 	
 
 
