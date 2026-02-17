@@ -1,6 +1,6 @@
 [[task 14]]
 [[task 15]]
-[[task 21]]
+[[task21_mimalloc/task 21]]
 
 # Tasks in Mimalloc
 
@@ -11,14 +11,15 @@
       
 - [ ] `src/options.c` reduce/avoid CRT dependency (`strtol`) in early option init path. User issue: preload or constrained-runtime startup can behave inconsistently when allocator init touches CRT paths.
       
-- [ ] `src/prim/emscripten/prim.c` track first-use zeroed memory state instead of always conservative `is_zero=false`. User issue: WebAssembly apps do extra zeroing work and lose performance in allocation-heavy workloads.
-	[[task 21]]
+- [x] `src/prim/emscripten/prim.c` track first-use zeroed memory state instead of always conservative `is_zero=false`. User issue: WebAssembly apps do extra zeroing work and lose performance in allocation-heavy workloads.
+	[[task21_mimalloc/task 21]]
       
 - [ ] `src/arena.c` choose current NUMA node when unset (`-1`). User issue: default configuration gives inconsistent locality, so identical deployments have different performance profiles.
       
 - [ ] `src/prim/unix/prim.c` replace hard-coded huge page size with query/config fallback. User issue: workload uses more CPU and memory bandwidth than expected on some Linux hosts, with inconsistent performance across machines.  
     
 - [ ] `include/mimalloc/internal.h` free-list alignment validation. User issue: app crashes randomly with hard-to-reproduce heap corruption after long runtimes, even in code that appears correct
+      [[task 22]]
     
 - [x] `src/heap.c` heap reset strategy optimization. User issue: short-lived allocation bursts cause avoidable CPU overhead, reducing throughput in services with frequent heap churn.  
       [[task 14]]

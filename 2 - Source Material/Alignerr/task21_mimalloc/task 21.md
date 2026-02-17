@@ -77,30 +77,32 @@ Lacks test coverage, there were no tests that were added for`mi_rezalloc(..)`, `
 
 | Question of which is / has           | Answer Given | Justoification Why? |
 | ------------------------------------ | ------------ | ------------------- |
-| Better logic and correctness         |              |                     |
-| Better Naming and Clarity            |              |                     |
-| Better Organization and Clarity      |              |                     |
-| Better Interface Design              |              |                     |
-| Better error handling and robustness |              |                     |
-| Better comments and documentation    |              |                     |
-| Ready for review / merge             |              |                     |
-| Overall Better Solution              |              |                     |
+| Better logic and correctness         | A much       |                     |
+| Better Naming and Clarity            | B slightly   |                     |
+| Better Organization and Clarity      | A slightly   |                     |
+| Better Interface Design              | N/A          |                     |
+| Better error handling and robustness | A better     |                     |
+| Better comments and documentation    | A barely     |                     |
+| Ready for review / merge             | A much       |                     |
+| Overall Better Solution              | A much       |                     |
 
 ### Pros and cons
 
 #### Model A:
 - Pros:
-	- 
-	
+	- The usage of `needs_ext_zero` to avoid zeroing the whole block every time a block of memory is extended more in `_mi_heap_realloc_zero(..)` is a clever way to increase performance from reducing writing `0`operations. `needs_ext_zero_ex` is still getting the the parameter `zero=true` when `p==NULL`, which means that the allocator can directly call `free_is_zero`. `mi_realloc_copy_and_free` is a helper function for repeating copying and freeing logic and is called directly increasing modularity. Adds benchmark tests but not add it into the `CMakeLists.txt` file which means it is not part of normal tests which is good as benchmark tests that test improvement in speed are supposed to be manual, this is a good decision made by the model without mentioning about it. Adds multiple tests and separates based on the type of the test into multiple files like `test-api.c`, `test-api-fill.c`, `test-bench-rezalloc.c` files which is great. 
 - Cons:
-	- 
+	- Though it already has good modularisation, `_mi_heap_realloc_zero(..)` and `mi_heap_realloc_zero_aligned_at(..)` functions still have some shared code / logic that could be modularised into a helper function. Some tests do not check for `q` like with something like `if (!q) ...` or `q != NULL` this is not a huge risk but could be done better.
 	  
 #### Model B:
 - Pros:
-	
+	- Functions like `mi_realloc_is_inplace(..)` and `mi_heap_realloc_alloc_copy(..)` improve modularisation. `mi_heap_realloc_zero(..)` uses the parameter `zero` for `_mi_heap_malloc_zero_ex()` which makes the logic more clear. Direct and easy to understand helper names like `mi_realloc_is_inplace()`etc.;
 - Cons:
-
+	- Adds benchmark tests to `CMakeList.txt`text file, which means benchmarks tests run every time during a normal test run where it is more about whether things or working or not and not about comparison / benchmarks.  `_mi_heap_realloc_zero(..)` and `mi_heap_realloc_zero_aligned_at()`could use something like a `needs_extra_zero` flag, that checks whether there is a need for extra zeroing, so only extra bytes are zeroed. No tests to benchmark adding / extension only zeroing cost vs full memory block zeroing performance / time. The performance improvement changes in total are very minimal
+	  
 #### Justification for best overall
+
+- Comparatively speaking I think Model A would have been better overall just from its performance improvements, as Model A does performance improvement changes both more in number and quality when compared to Model B. Also, Other than the fact that Model B has slightly good names when compared to Model A, Model A does a equal or better than Model B in everything. Model A had more modularisation changes than B, that said B also does a decent job here. Also Model A does a better job at both the tests themselves and also makes a clever decision of not including benchmark tests in `CMakeList.txt`file avoiding running benchmarks even during normal test runs that are supposedly run for testing functionality and not speed, Model B does the exact opposite decision here which is obviously bad. So Model A is much better than Model B.
 
 ---
 
