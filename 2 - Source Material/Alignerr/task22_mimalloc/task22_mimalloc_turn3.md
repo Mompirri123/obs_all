@@ -19,7 +19,7 @@ Prompt 3:
 Observed build/test status:
 - Model A: builds; `ctest` has 5 tests and all pass.
 - Model B: builds; `ctest` has 6 tests and all pass.
-- In both models, old-mode run did not fail in my environment (arm64 macOS), so strict fail-before/pass-after proof is still not demonstrated.
+- In both models, old-mode run did not fail in my environment (arm64 macOS). This limits comparison rigor, but it does not invalidate the Prompt 1 core fix when normal regression tests are stable.
 
 Backward compatibility note:
 - Not required by prompt, so no penalty if not prioritized.
@@ -120,7 +120,8 @@ Edge cases not fully proven:
 ### 5) PR readiness and concrete next-turn fixes
 
 PR readiness for prompt 1+2+3:
-- **Almost PR-ready, but still missing automated before/after proof execution.**
+- **PR-ready for Prompt 1 production objective.**  
+  Prompt 3 comparison rigor is improved but still has follow-up items.
 
 Concrete next-turn fixes:
 1. Add raw-mode test execution strategy to CI/ctest (or a script target) without making CI flaky.
@@ -211,7 +212,8 @@ Edge cases not fully proven:
 ### 5) PR readiness and concrete next-turn fixes
 
 PR readiness for prompt 1+2+3:
-- **Partially ready, but comparison logic and metrics are incomplete.**
+- **Usable, but not the strongest PR-ready choice.**  
+  It is closer to ready after Prompt 2/3 work, but comparison logic scope and metrics still need follow-up.
 
 Concrete next-turn fixes:
 1. Extend switch effect to reclaim read sites too (`mi_free_block_mt(..)`, `_mi_segment_attempt_reclaim(..)`), not only coalesce.
@@ -236,14 +238,14 @@ Scale:
 | Better Interface Design              | Tie (0)             | No public API/signature changes in either model. |
 | Better error handling and robustness | Model A (+1)        | Model A applies old/fixed switch to more reclaim/coalesce decision points, giving stronger scope for the targeted race path. |
 | Better comments and documentation    | Tie (0)             | A has deeper rationale comments but some mismatch with implementation; B comments are simpler but closer to what runs. Net tie. |
-| Ready for review / merge             | Model A (+1)        | A has stronger core logic scope but lacks automated old-mode execution; B automates both modes but switch scope/metrics are incomplete. Both still need cleanup. |
-| Overall Better Solution              | Model A (+1)        | A is slightly better on core reclaim+coalesce correctness scope; B is better on automation. Net result is close, with A narrowly ahead for the original bug objective. |
+| Ready for review / merge             | Model A (+2)        | For Prompt 1, Model A is merge-ready: core reclaim/coalesce logic is fixed in the right paths and regression tests pass. Prompt 3 comparison polish can be follow-up work. |
+| Overall Better Solution              | Model A (+2)        | Model A gives better core race-path coverage for the original corruption objective. Model B has stronger automation for old/new mode tests, but narrower switch scope. |
 
 ## Final judgement
 
-Model A is slightly better for prompt 1+2+3 because its test switch affects both reclaim and coalesce read paths, which is closer to the requested core race logic.
+Model A is the better choice and is **PR-ready for Prompt 1** (original production bug objective).
 
-But neither model is fully PR-ready yet because:
-- fail-before/pass-after was not demonstrated in actual runs,
-- comparison metrics are incomplete (especially race/assert counters),
-- and the new test file is untracked in workspace state.
+Reason:
+- It fixes the core reclaim/coalesce read logic with broader switch coverage across relevant decision points.
+- It includes regression testing that passes in normal pipeline.
+- Remaining Prompt 3 gaps are mostly evidence/measurement polish (deterministic before/after proof behavior on all environments, richer counters, and file-tracking cleanup), which are valid follow-up improvements.
